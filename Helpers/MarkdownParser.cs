@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System;
+using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
@@ -6,9 +7,10 @@ using System.Windows.Media;
 
 public static class MarkdownParser
 {
-    public static ObservableCollection<Inline> Parse(string content)
+    public static ObservableCollection<Inline> Parse(string content, double fontSize = 14)
     {
         var inlines = new ObservableCollection<Inline>();
+        var font = new FontFamily(new Uri("pack://application:,,,/"), "./Resources/Fonts/#Pretendard Variable");
 
         if (string.IsNullOrEmpty(content))
             return inlines;
@@ -23,18 +25,20 @@ public static class MarkdownParser
             if (match.Index > lastIndex)
             {
                 string plain = content.Substring(lastIndex, match.Index - lastIndex);
-                inlines.Add(new Run(plain));
+                inlines.Add(new Run(plain) { FontFamily = font, FontSize = fontSize });
             }
 
             if (match.Value.StartsWith("**"))
             {
                 string boldText = match.Groups[2].Value;
-                inlines.Add(new Run(boldText) { FontWeight = FontWeights.Bold });
+                var boldRun = new Run(boldText) { FontFamily = font, FontSize = fontSize };
+                inlines.Add(new Bold(boldRun) { FontFamily = font });
             }
             else if (match.Value.StartsWith("*"))
             {
                 string italicText = match.Groups[3].Value;
-                inlines.Add(new Run(italicText) { FontStyle = FontStyles.Italic });
+                var italicRun = new Run(italicText) { FontFamily = font, FontSize = fontSize };
+                inlines.Add(new Italic(italicRun) { FontFamily = font });
             }
 
             lastIndex = match.Index + match.Length;
@@ -42,7 +46,7 @@ public static class MarkdownParser
 
         if (lastIndex < content.Length)
         {
-            inlines.Add(new Run(content.Substring(lastIndex)));
+            inlines.Add(new Run(content.Substring(lastIndex)) { FontFamily = font, FontSize = fontSize });
         }
 
         return inlines;

@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Notea.Modules.Subject.ViewModels"
              xmlns:local="clr-namespace:Notea.Converters"
+             xmlns:controls="clr-namespace:Notea.Controls"
              x:Name="editorView"
              >
     <UserControl.DataContext>
@@ -25,20 +26,6 @@
             <ItemsControl x:Name="ItemsControlContainer" ItemsSource="{Binding Lines}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <!--<DockPanel LastChildFill="True" Margin="0">
-                            <TextBox
-                                x:Name="InlineEditor"
-                                Text="{Binding DisplayText, UpdateSourceTrigger=PropertyChanged}"
-                                FontSize="{Binding FontSize}"
-                                FontWeight="{Binding FontWeight}"
-                                Margin="{Binding Margin}"
-                                GotFocus="TextBox_GotFocus"
-                                LostFocus="TextBox_LostFocus"
-                                BorderThickness="0"
-                                Background="Transparent"
-                                PreviewKeyDown="TextBox_PreviewKeyDown"/>
-                        </DockPanel>-->
-
                         <Grid>
                             <!-- TextBox (편집 상태일 때만 보임) -->
                             <TextBox
@@ -55,25 +42,17 @@
                                  PreviewKeyDown="TextBox_PreviewKeyDown"/>
 
                             <!-- TextBlock (렌더링 상태일 때만 보임) -->
-                            <TextBlock 
+                            <controls:MarkdownTextBlock 
                                 Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}"
                                 FontSize="{Binding FontSize}"
                                 FontWeight="{Binding FontWeight}"
                                 Margin="{Binding Margin}"
-                                GotFocus="TextBox_GotFocus"
-                                LostFocus="TextBox_LostFocus"
                                 Cursor="IBeam"
                                 Background="Transparent"
-                                Loaded="TextBlock_Loaded"
                                 MouseDown="TextBlock_MouseDown"
-                                TargetUpdated="TextBlock_TargetUpdated"
-                                       >
-                                <TextBlock.Inlines>
-                                    <InlineUIContainer>
-                                        <ItemsControl ItemsSource="{Binding Inlines}" />
-                                    </InlineUIContainer>
-                                </TextBlock.Inlines>
-                            </TextBlock>
+                                InlinesSource="{Binding Inlines}"
+                                Content="{Binding Content}">
+                            </controls:MarkdownTextBlock>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

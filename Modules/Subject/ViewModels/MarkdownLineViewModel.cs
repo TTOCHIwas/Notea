@@ -217,14 +217,18 @@ namespace Notea.Modules.Subject.ViewModels
 
             Debug.WriteLine("═════════════════════════════════════");
             Debug.WriteLine($"[DEBUG] UpdateInlinesFromContent 호출! Content = \"{Content}\"");
+            Debug.WriteLine($"[DEBUG] IsEditing = {IsEditing}, IsHeading = {IsHeading}, HeadingLevel = {HeadingLevel}");
             Debug.WriteLine(Environment.StackTrace);
-            Inlines.Clear();
+
+            // 새로운 컬렉션 생성 (바인딩 업데이트 강제)
+            var newInlines = new ObservableCollection<Inline>();
 
             var font = new FontFamily(new Uri("pack://application:,,,/"), "./Resources/Fonts/#Pretendard Variable");
 
             if (string.IsNullOrEmpty(Content))
             {
                 Debug.WriteLine("[DEBUG] Content is null or empty.");
+                Inlines = newInlines;
                 return;
             }
 
@@ -235,14 +239,30 @@ namespace Notea.Modules.Subject.ViewModels
                 int level = headingMatch.Groups[1].Value.Length;
                 string text = headingMatch.Groups[2].Value;
 
+                // 헤딩 레벨에 따른 폰트 크기 계산
+                double headingFontSize = level switch
+                {
+                    1 => 26,
+                    2 => 22,
+                    3 => 18,
+                    4 => 16,
+                    5 => 14,
+                    6 => 13,
+                    _ => 14
+                };
+
                 var run = new Run(text)
                 {
-                    FontSize = 24 - (level - 1) * 2, // 헤딩 수준에 따른 크기 감소
+                    FontSize = headingFontSize,
                     FontWeight = FontWeights.Bold,
                     FontFamily = font
                 };
 
-                Inlines.Add(run);
+                Debug.WriteLine($"[DEBUG] Creating heading: Level={level}, Text='{text}', FontSize={headingFontSize}");
+
+                newInlines.Add(run);
+                Inlines = newInlines; // 전체 교체
+                OnPropertyChanged(nameof(Inlines)); // 명시적으로 PropertyChanged 발생
                 return; // 헤딩이면 여기서 종료 (인라인 마크다운 안 함)
             }
 
@@ -257,28 +277,30 @@ namespace Notea.Modules.Subject.ViewModels
                 if (match.Index > lastIndex)
                 {
                     var plain = Content.Substring(lastIndex, match.Index - lastIndex);
-                    Inlines.Add(new Run(plain) { FontFamily = font });
+                    newInlines.Add(new Run(plain) { FontFamily = font, FontSize = FontSize });
                 }
 
                 if (match.Value.StartsWith("**"))
                 {
-                    Inlines.Add(new Bold(new Run(match.Groups[2].Value)) { FontFamily = font });
+                    var boldRun = new Run(match.Groups[2].Value) { FontFamily = font, FontSize = FontSize };
+                    newInlines.Add(new Bold(boldRun) { FontFamily = font });
                 }
                 else if (match.Value.StartsWith("*"))
                 {
-                    Inlines.Add(new Italic(new Run(match.Groups[3].Value)) { FontFamily = font });
+                    var italicRun = new Run(match.Groups[3].Value) { FontFamily = font, FontSize = FontSize };
+                    newInlines.Add(new Italic(italicRun) { FontFamily = font });
                 }
                 else if (match.Value.StartsWith("__"))
                 {
-                    var underline = new Run(match.Groups[4].Value) { FontFamily = font };
+                    var underline = new Run(match.Groups[4].Value) { FontFamily = font, FontSize = FontSize };
                     underline.TextDecorations = TextDecorations.Underline;
-                    Inlines.Add(underline);
+                    newInlines.Add(underline);
                 }
                 else if (match.Value.StartsWith("~~"))
                 {
-                    var strike = new Run(match.Groups[5].Value) { FontFamily = font };
+                    var strike = new Run(match.Groups[5].Value) { FontFamily = font, FontSize = FontSize };
                     strike.TextDecorations = TextDecorations.Strikethrough;
-                    Inlines.Add(strike);
+                    newInlines.Add(strike);
                 }
 
                 lastIndex = match.Index + match.Length;
@@ -286,9 +308,11 @@ namespace Notea.Modules.Subject.ViewModels
 
             if (lastIndex < Content.Length)
             {
-                Inlines.Add(new Run(Content.Substring(lastIndex)) { FontFamily = font });
+                newInlines.Add(new Run(Content.Substring(lastIndex)) { FontFamily = font, FontSize = FontSize });
             }
 
+            Inlines = newInlines; // 전체 교체
+            OnPropertyChanged(nameof(Inlines)); // 명시적으로 PropertyChanged 발생
             OnPropertyChanged(nameof(FontSize));
             OnPropertyChanged(nameof(FontWeight));
             OnPropertyChanged(nameof(Margin));

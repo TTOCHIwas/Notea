@@ -34,25 +34,53 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBox_GotFocus(object sender, RoutedEventArgs e)
         {
+            Debug.WriteLine("=== TextBox_GotFocus ===");
             if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
             {
                 vm.IsEditing = true;
                 textBox.CaretIndex = textBox.Text.Length;
+                Debug.WriteLine($"IsEditing set to: {vm.IsEditing}");
             }
         }
 
         private void TextBox_LostFocus(object sender, RoutedEventArgs e)
         {
+            Debug.WriteLine("=== TextBox_LostFocus ===");
+
+            // 내부 포커스 변경 중이면 처리하지 않음
+            if (_isInternalFocusChange)
+            {
+                Debug.WriteLine("Internal focus change, skipping...");
+                return;
+            }
+
             if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
             {
+                Debug.WriteLine($"Content before update: {vm.Content}");
+                Debug.WriteLine($"Inlines count before: {vm.Inlines.Count}");
+
+                // 먼저 Inlines를 업데이트
                 vm.UpdateInlinesFromContent();
-                vm.IsEditing = false;
+
+                Debug.WriteLine($"Inlines count after: {vm.Inlines.Count}");
+                foreach (var inline in vm.Inlines)
+                {
+                    Debug.WriteLine($"  Inline type: {inline.GetType().Name}");
+                }
+
+                // 약간의 지연 후 IsEditing을 false로 설정
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    vm.IsEditing = false;
+                    Debug.WriteLine($"IsEditing set to: {vm.IsEditing}");
+                }), System.Windows.Threading.DispatcherPriority.DataBind);
             }
         }
 
         private void TextBlock_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is not TextBlock tb || tb.DataContext is not MarkdownLineViewModel vm)
+            Debug.WriteLine("=== TextBlock_MouseDown ===");
+            if (sender is not FrameworkElement fe || fe.DataContext is not MarkdownLineViewModel vm)
                 return;
 
             vm.IsEditing = true;
@@ -71,27 +99,34 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBlock_Loaded(object sender, RoutedEventArgs e)
         {
+            Debug.WriteLine("=== TextBlock_Loaded ===");
             if (sender is TextBlock textBlock && textBlock.DataContext is MarkdownLineViewModel vm)
             {
+                Debug.WriteLine($"Content: {vm.Content}");
+                Debug.WriteLine($"Inlines count: {vm.Inlines.Count}");
 
                 if (string.IsNullOrWhiteSpace(vm.Content))
                 {
+                    Debug.WriteLine("Content is empty, returning");
                     return;
                 }
 
                 if (vm.Inlines.Count == 0)
                 {
+                    Debug.WriteLine("Inlines empty, updating...");
                     vm.UpdateInlinesFromContent();
                 }
 
-
                 textBlock.Inlines.Clear();
-                Debug.WriteLine($"[DEBUG] TextBlock Font: {textBlock.FontFamily.Source}");
+                Debug.WriteLine($"Adding {vm.Inlines.Count} inlines to TextBlock");
 
                 foreach (var inline in vm.Inlines)
                 {
+                    Debug.WriteLine($"  Adding inline: {inline.GetType().Name}");
                     textBlock.Inlines.Add(inline);
                 }
+
+                Debug.WriteLine($"TextBlock now has {textBlock.Inlines.Count} inlines");
             }
         }
 
@@ -119,18 +154,39 @@ namespace Notea.Modules.Subject.Views
 
         private void HandleEnter(NoteEditorViewModel vm)
         {
-            var currentLine = vm.Lines.LastOrDefault();
-            if (currentLine != null) currentLine.IsEditing = false;
-
             _isInternalFocusChange = true;
 
+            // 현재 라인의 인덱스 저장
+            var currentLine = vm.Lines.LastOrDefault();
+            var currentIndex = currentLine != null ? vm.Lines.IndexOf(currentLine) : -1;
+
+            // 새 라인 추가 (IsEditing = true로 생성됨)
             vm.AddNewLine();
 
+            // 즉시 새 TextBox에 포커스 설정 시도
             Dispatcher.InvokeAsync(() =>
             {
-                FocusTextBoxAtIndex(vm.Lines.Count - 1);
-                _isInternalFocusChange = false; 
-            }, DispatcherPriority.Background);
+                // 새 라인의 컨테이너가 생성될 때까지 대기
+                editorView.UpdateLayout();
+
+                var newContainer = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(vm.Lines.Count - 1) as FrameworkElement;
+                if (newContainer != null)
+                {
+                    var newTextBox = FindVisualChild<TextBox>(newContainer);
+                    if (newTextBox != null)
+                    {
+                        newTextBox.Focus();
+
+                        // 포커스가 설정된 후에 이전 라인의 IsEditing을 false로
+                        if (currentLine != null)
+                        {
+                            currentLine.IsEditing = false;
+                        }
+                    }
+                }
+
+                _isInternalFocusChange = false;
+            }, DispatcherPriority.Input);  // 우선순위를 Input으로 변경
         }
 
         private void TryFocusNewTextBox(int index, int retries)
@@ -209,6 +265,7 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBlock_TargetUpdated(object sender, DataTransferEventArgs e)
         {
+            Debug.WriteLine("=== TextBlock_TargetUpdated ===");
             if (sender is not TextBlock textBlock || textBlock.DataContext is not MarkdownLineViewModel vm)
                 return;
 
