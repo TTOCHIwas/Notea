@@ -14,7 +14,15 @@ namespace Notea.Modules.Subject.ViewModels
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>
             {
-                new MarkdownLineViewModel()
+                new MarkdownLineViewModel { IsEditing = false }
+            };
+
+            Lines.CollectionChanged += (s, e) =>
+            {
+                if (Lines.Count == 0)
+                {
+                    Lines.Add(new MarkdownLineViewModel());
+                }
             };
         }
 

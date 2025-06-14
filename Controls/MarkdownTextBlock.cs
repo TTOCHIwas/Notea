@@ -41,19 +41,13 @@ namespace Notea.Controls
 
             textBlock.Inlines.Clear();
 
-            System.Diagnostics.Debug.WriteLine($"[MarkdownTextBlock] InlinesSource changed");
-
             if (e.NewValue is ObservableCollection<Inline> inlines)
             {
-                System.Diagnostics.Debug.WriteLine($"[MarkdownTextBlock] Processing {inlines.Count} inlines");
-
                 foreach (var inline in inlines)
                 {
                     var cloned = CloneInline(inline);
                     textBlock.Inlines.Add(cloned);
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[MarkdownTextBlock] Final inline count: {textBlock.Inlines.Count}");
             }
 
             // Inlines가 비어있으면 Content를 표시
@@ -82,15 +76,12 @@ namespace Notea.Controls
                 var newRun = new Run(run.Text)
                 {
                     FontFamily = run.FontFamily,
-                    FontSize = run.FontSize > 0 ? run.FontSize : 14,  // FontSize 확인
+                    FontSize = run.FontSize > 0 ? run.FontSize : 14,
                     FontWeight = run.FontWeight,
                     FontStyle = run.FontStyle,
                     TextDecorations = run.TextDecorations,
                     Foreground = run.Foreground
                 };
-
-                // 디버그 출력
-                System.Diagnostics.Debug.WriteLine($"Cloning Run: Text='{run.Text}', FontSize={run.FontSize}, FontWeight={run.FontWeight}");
 
                 return newRun;
             }

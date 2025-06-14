@@ -1,27 +1,15 @@
 ﻿using Notea.Modules.Subject.ViewModels;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 
 namespace Notea.Modules.Subject.Views
 {
-    /// <summary>
-    /// NoteEditorView.xaml에 대한 상호 작용 논리
-    /// </summary>
     public partial class NoteEditorView : UserControl
     {
         public NoteEditorView()
@@ -34,52 +22,60 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBox_GotFocus(object sender, RoutedEventArgs e)
         {
-            Debug.WriteLine("=== TextBox_GotFocus ===");
             if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
             {
                 vm.IsEditing = true;
+                vm.HasFocus = true; // 포커스 상태 설정
                 textBox.CaretIndex = textBox.Text.Length;
-                Debug.WriteLine($"IsEditing set to: {vm.IsEditing}");
             }
         }
 
         private void TextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            Debug.WriteLine("=== TextBox_LostFocus ===");
 
-            // 내부 포커스 변경 중이면 처리하지 않음
             if (_isInternalFocusChange)
             {
-                Debug.WriteLine("Internal focus change, skipping...");
                 return;
             }
 
             if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
             {
-                Debug.WriteLine($"Content before update: {vm.Content}");
-                Debug.WriteLine($"Inlines count before: {vm.Inlines.Count}");
-
-                // 먼저 Inlines를 업데이트
+                vm.HasFocus = false; // 포커스 상태 해제
+                vm.IsComposing = false; // IME 조합 상태 리셋
                 vm.UpdateInlinesFromContent();
 
-                Debug.WriteLine($"Inlines count after: {vm.Inlines.Count}");
-                foreach (var inline in vm.Inlines)
-                {
-                    Debug.WriteLine($"  Inline type: {inline.GetType().Name}");
-                }
-
-                // 약간의 지연 후 IsEditing을 false로 설정
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     vm.IsEditing = false;
-                    Debug.WriteLine($"IsEditing set to: {vm.IsEditing}");
-                }), System.Windows.Threading.DispatcherPriority.DataBind);
+                }), DispatcherPriority.DataBind);
+            }
+        }
+
+        // 한글 입력 시 실시간으로 placeholder 숨기기
+        private void TextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
+            {
+                // 어떤 텍스트든 입력이 시작되면 즉시 조합 상태로 설정
+                vm.IsComposing = true;
+            }
+        }
+
+        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
+            {
+                // 텍스트가 변경될 때마다 조합 상태 업데이트
+                // 빈 텍스트가 되면 조합 상태 해제
+                if (string.IsNullOrEmpty(textBox.Text))
+                {
+                    vm.IsComposing = false;
+                }
             }
         }
 
         private void TextBlock_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            Debug.WriteLine("=== TextBlock_MouseDown ===");
             if (sender is not FrameworkElement fe || fe.DataContext is not MarkdownLineViewModel vm)
                 return;
 
@@ -92,42 +88,12 @@ namespace Notea.Modules.Subject.Views
 
                 var container = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
                 var textBox = FindVisualChild<TextBox>(container);
-                textBox?.Focus();
-                textBox?.Select(textBox.Text.Length, 0);
+                if (textBox != null)
+                {
+                    textBox.Focus();
+                    textBox.Select(textBox.Text.Length, 0);
+                }
             }, DispatcherPriority.Input);
-        }
-
-        private void TextBlock_Loaded(object sender, RoutedEventArgs e)
-        {
-            Debug.WriteLine("=== TextBlock_Loaded ===");
-            if (sender is TextBlock textBlock && textBlock.DataContext is MarkdownLineViewModel vm)
-            {
-                Debug.WriteLine($"Content: {vm.Content}");
-                Debug.WriteLine($"Inlines count: {vm.Inlines.Count}");
-
-                if (string.IsNullOrWhiteSpace(vm.Content))
-                {
-                    Debug.WriteLine("Content is empty, returning");
-                    return;
-                }
-
-                if (vm.Inlines.Count == 0)
-                {
-                    Debug.WriteLine("Inlines empty, updating...");
-                    vm.UpdateInlinesFromContent();
-                }
-
-                textBlock.Inlines.Clear();
-                Debug.WriteLine($"Adding {vm.Inlines.Count} inlines to TextBlock");
-
-                foreach (var inline in vm.Inlines)
-                {
-                    Debug.WriteLine($"  Adding inline: {inline.GetType().Name}");
-                    textBlock.Inlines.Add(inline);
-                }
-
-                Debug.WriteLine($"TextBlock now has {textBlock.Inlines.Count} inlines");
-            }
         }
 
         private void TextBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -141,11 +107,27 @@ namespace Notea.Modules.Subject.Views
             var vm = this.DataContext as NoteEditorViewModel;
             if (vm == null) return;
 
-            // 기존 Enter, Backspace 처리
-            if (e.Key == Key.Enter)
+            // 한글 입력 중 ESC 키로 조합 취소 시 처리
+            if (e.Key == Key.Escape)
+            {
+                lineVM.IsComposing = false;
+            }
+            // Enter 키 처리
+            else if (e.Key == Key.Enter)
             {
                 e.Handled = true;
-                HandleEnter(vm);
+
+                // 리스트나 제목 기호만 있으면 제거
+                if (lineVM.ShouldCleanupOnEnter())
+                {
+                    // 기호가 제거되었으므로 그냥 새 줄로 이동
+                    HandleEnter(vm);
+                }
+                else
+                {
+                    // 일반적인 엔터 처리
+                    HandleEnter(vm);
+                }
             }
             else if (e.Key == Key.Back)
             {
@@ -170,14 +152,13 @@ namespace Notea.Modules.Subject.Views
                         break;
                 }
             }
-            // 방향키 네비게이션 추가
+            // 방향키 네비게이션
             else if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
             {
                 e.Handled = HandleArrowNavigation(vm, textBox, lineVM, e.Key);
             }
         }
 
-        // 방향키 네비게이션 처리
         private bool HandleArrowNavigation(NoteEditorViewModel vm, TextBox textBox, MarkdownLineViewModel lineVM, Key key)
         {
             int currentIndex = vm.Lines.IndexOf(lineVM);
@@ -187,7 +168,6 @@ namespace Notea.Modules.Subject.Views
             switch (key)
             {
                 case Key.Up:
-                    // 첫 번째 줄이 아니면 위로 이동
                     if (currentIndex > 0)
                     {
                         return MoveToLine(vm, currentIndex - 1, caretPos);
@@ -195,7 +175,6 @@ namespace Notea.Modules.Subject.Views
                     break;
 
                 case Key.Down:
-                    // 마지막 줄이 아니면 아래로 이동
                     if (currentIndex < vm.Lines.Count - 1)
                     {
                         return MoveToLine(vm, currentIndex + 1, caretPos);
@@ -203,15 +182,13 @@ namespace Notea.Modules.Subject.Views
                     break;
 
                 case Key.Left:
-                    // 커서가 맨 앞이고 첫 번째 줄이 아니면 이전 줄 끝으로
                     if (caretPos == 0 && currentIndex > 0)
                     {
-                        return MoveToLine(vm, currentIndex - 1, -1); // -1은 줄 끝을 의미
+                        return MoveToLine(vm, currentIndex - 1, -1);
                     }
                     break;
 
                 case Key.Right:
-                    // 커서가 맨 끝이고 마지막 줄이 아니면 다음 줄 시작으로
                     if (caretPos == textLength && currentIndex < vm.Lines.Count - 1)
                     {
                         return MoveToLine(vm, currentIndex + 1, 0);
@@ -222,7 +199,6 @@ namespace Notea.Modules.Subject.Views
             return false;
         }
 
-        // 특정 라인으로 이동 (부드러운 전환 버전)
         private bool MoveToLine(NoteEditorViewModel vm, int targetIndex, int caretPosition)
         {
             if (targetIndex < 0 || targetIndex >= vm.Lines.Count)
@@ -234,13 +210,10 @@ namespace Notea.Modules.Subject.Views
             if (currentLine == targetLine)
                 return false;
 
-            // 내부 포커스 변경 플래그 설정
             _isInternalFocusChange = true;
 
-            // 타겟 라인을 먼저 편집 모드로 설정 (깜빡임 방지)
             targetLine.IsEditing = true;
 
-            // 짧은 지연 후 포커스 이동 (템플릿 전환 시간 확보)
             Dispatcher.InvokeAsync(() =>
             {
                 editorView.UpdateLayout();
@@ -253,7 +226,6 @@ namespace Notea.Modules.Subject.Views
                     {
                         targetTextBox.Focus();
 
-                        // 커서 위치 설정
                         if (caretPosition == -1)
                         {
                             targetTextBox.CaretIndex = targetTextBox.Text.Length;
@@ -263,7 +235,6 @@ namespace Notea.Modules.Subject.Views
                             targetTextBox.CaretIndex = Math.Min(caretPosition, targetTextBox.Text.Length);
                         }
 
-                        // 이전 라인의 편집 모드를 나중에 해제 (포커스 이동 후)
                         if (currentLine != null && currentLine != targetLine)
                         {
                             Dispatcher.BeginInvoke(() =>
@@ -276,17 +247,15 @@ namespace Notea.Modules.Subject.Views
                         container.BringIntoView();
                     }
                 }
-            }, DispatcherPriority.Render); // Input보다 빠른 우선순위
+            }, DispatcherPriority.Render);
 
             return true;
         }
 
-        // 마크다운 토글 처리 (개선된 버전)
         private bool HandleMarkdownToggle(TextBox textBox, string markdownSymbol)
         {
             if (textBox.SelectionLength == 0)
             {
-                // 선택한 텍스트가 없으면 마크다운 기호만 삽입하고 커서를 중간에 위치
                 int caretPos = textBox.CaretIndex;
                 textBox.Text = textBox.Text.Insert(caretPos, markdownSymbol + markdownSymbol);
                 textBox.CaretIndex = caretPos + markdownSymbol.Length;
@@ -299,7 +268,6 @@ namespace Notea.Modules.Subject.Views
             int selectionEnd = selectionStart + textBox.SelectionLength;
             int symbolLength = markdownSymbol.Length;
 
-            // 선택 영역 앞뒤로 정확히 해당 마크다운 기호가 있는지 확인
             bool hasExactMarkdownBefore = false;
             bool hasExactMarkdownAfter = false;
 
@@ -311,7 +279,6 @@ namespace Notea.Modules.Subject.Views
                 hasExactMarkdownBefore = beforeSymbol == markdownSymbol;
                 hasExactMarkdownAfter = afterSymbol == markdownSymbol;
 
-                // ** 와 * 구분하기 위한 추가 체크
                 if (markdownSymbol == "*" && hasExactMarkdownBefore && selectionStart >= 2)
                 {
                     if (fullText[selectionStart - 2] == '*')
@@ -326,7 +293,6 @@ namespace Notea.Modules.Subject.Views
 
             if (hasExactMarkdownBefore && hasExactMarkdownAfter)
             {
-                // 마크다운 제거
                 textBox.Text = fullText.Remove(selectionEnd, symbolLength)
                                       .Remove(selectionStart - symbolLength, symbolLength);
 
@@ -335,7 +301,6 @@ namespace Notea.Modules.Subject.Views
             }
             else
             {
-                // 마크다운 추가
                 string formattedText = markdownSymbol + selectedText + markdownSymbol;
                 textBox.Text = fullText.Remove(selectionStart, textBox.SelectionLength)
                                       .Insert(selectionStart, formattedText);
@@ -347,42 +312,22 @@ namespace Notea.Modules.Subject.Views
             return true;
         }
 
-        // 각 마크다운 단축키 처리
-        private bool HandleBoldShortcut(TextBox textBox)
-        {
-            return HandleMarkdownToggle(textBox, "**");
-        }
-
-        private bool HandleItalicShortcut(TextBox textBox)
-        {
-            return HandleMarkdownToggle(textBox, "*");
-        }
-
-        private bool HandleUnderlineShortcut(TextBox textBox)
-        {
-            return HandleMarkdownToggle(textBox, "__");
-        }
-
-        private bool HandleStrikethroughShortcut(TextBox textBox)
-        {
-            return HandleMarkdownToggle(textBox, "~~");
-        }
+        private bool HandleBoldShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "**");
+        private bool HandleItalicShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "*");
+        private bool HandleUnderlineShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "__");
+        private bool HandleStrikethroughShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "~~");
 
         private void HandleEnter(NoteEditorViewModel vm)
         {
             _isInternalFocusChange = true;
 
-            // 현재 라인의 인덱스 저장
             var currentLine = vm.Lines.LastOrDefault();
             var currentIndex = currentLine != null ? vm.Lines.IndexOf(currentLine) : -1;
 
-            // 새 라인 추가 (IsEditing = true로 생성됨)
             vm.AddNewLine();
 
-            // 즉시 새 TextBox에 포커스 설정 시도
             Dispatcher.InvokeAsync(() =>
             {
-                // 새 라인의 컨테이너가 생성될 때까지 대기
                 editorView.UpdateLayout();
 
                 var newContainer = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(vm.Lines.Count - 1) as FrameworkElement;
@@ -393,7 +338,6 @@ namespace Notea.Modules.Subject.Views
                     {
                         newTextBox.Focus();
 
-                        // 포커스가 설정된 후에 이전 라인의 IsEditing을 false로
                         if (currentLine != null)
                         {
                             currentLine.IsEditing = false;
@@ -402,28 +346,7 @@ namespace Notea.Modules.Subject.Views
                 }
 
                 _isInternalFocusChange = false;
-            }, DispatcherPriority.Input);  // 우선순위를 Input으로 변경
-        }
-
-        private void TryFocusNewTextBox(int index, int retries)
-        {
-            var container = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
-            var textBox = FindVisualChild<TextBox>(container);
-
-            if (textBox != null)
-            {
-                textBox.Focus();
-                textBox.CaretIndex = textBox.Text.Length;
-                return;
-            }
-
-            if (retries > 0)
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    TryFocusNewTextBox(index, retries - 1);
-                }, DispatcherPriority.Background);
-            }
+            }, DispatcherPriority.Input);
         }
 
         private bool HandleBackspace(NoteEditorViewModel vm, TextBox textBox, MarkdownLineViewModel lineVM)
@@ -460,31 +383,13 @@ namespace Notea.Modules.Subject.Views
                 textBox.CaretIndex = textBox.Text.Length;
             }
 
-            // Scroll into view
-            container.BringIntoView(); // 추가
-        }
-
-        private void TextBlock_TargetUpdated(object sender, DataTransferEventArgs e)
-        {
-            Debug.WriteLine("=== TextBlock_TargetUpdated ===");
-            if (sender is not TextBlock textBlock || textBlock.DataContext is not MarkdownLineViewModel vm)
-                return;
-
-            if (string.IsNullOrWhiteSpace(vm.Content))
-            {
-                return;
-            }
-
-            if (vm.Inlines.Count == 0)
-                vm.UpdateInlinesFromContent();
-
-            textBlock.Inlines.Clear();
-            foreach (var inline in vm.Inlines)
-                textBlock.Inlines.Add(inline);
+            container.BringIntoView();
         }
 
         private T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
         {
+            if (parent == null) return null;
+
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
             {
                 var child = VisualTreeHelper.GetChild(parent, i);

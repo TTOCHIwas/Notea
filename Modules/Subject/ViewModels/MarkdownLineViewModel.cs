@@ -20,13 +20,45 @@ namespace Notea.Modules.Subject.ViewModels
         private int _headingLevel = 0;
         private string _rawContent;
         private bool _isEditing;
-        private string _placeholder = "텍스트를 입력하세요...";
+        private string _placeholder = "";
+        private bool _isComposing = false;
+        private bool _hasFocus = false;
 
         public MarkdownLineViewModel()
         {
             Content = "";
             UpdateInlinesFromContent();
             UpdatePlaceholder();
+        }
+
+        // 포커스 상태 추가
+        public bool HasFocus
+        {
+            get => _hasFocus;
+            set
+            {
+                if (_hasFocus != value)
+                {
+                    _hasFocus = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(ShowPlaceholder));
+                }
+            }
+        }
+
+        // IME 조합 중 여부
+        public bool IsComposing
+        {
+            get => _isComposing;
+            set
+            {
+                if (_isComposing != value)
+                {
+                    _isComposing = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(ShowPlaceholder));
+                }
+            }
         }
 
         public string RawContent
@@ -61,6 +93,13 @@ namespace Notea.Modules.Subject.ViewModels
                 {
                     _isEditing = value;
                     OnPropertyChanged();
+
+                    // 편집 모드가 끝나면 조합 상태와 포커스 리셋
+                    if (!_isEditing)
+                    {
+                        IsComposing = false;
+                        HasFocus = false;
+                    }
                 }
             }
         }
@@ -100,7 +139,13 @@ namespace Notea.Modules.Subject.ViewModels
         {
             get
             {
-                // Content가 비어있거나 특정 패턴만 있을 때 true
+                // 조합 중이면 무조건 숨기기
+                if (_isComposing) return false;
+
+                // 포커스가 없으면 숨기기
+                if (!_hasFocus) return false;
+
+                // Content가 비어있을 때만 표시
                 if (string.IsNullOrWhiteSpace(Content))
                     return true;
 
@@ -119,10 +164,6 @@ namespace Notea.Modules.Subject.ViewModels
                 if (Regex.IsMatch(Content, orderedListOnlyPattern))
                     return true;
 
-                // 코드 블록 시작만 있는 경우
-                if (Content == "```")
-                    return true;
-
                 return false;
             }
         }
@@ -136,13 +177,13 @@ namespace Notea.Modules.Subject.ViewModels
                 int level = headingMatch.Groups[1].Value.Length;
                 Placeholder = level switch
                 {
-                    1 => "제목을 입력하세요",
-                    2 => "부제목을 입력하세요",
-                    3 => "섹션 제목을 입력하세요",
-                    4 => "소제목을 입력하세요",
-                    5 => "작은 제목을 입력하세요",
-                    6 => "가장 작은 제목을 입력하세요",
-                    _ => "제목을 입력하세요"
+                    1 => "\t제목을 입력하세요",
+                    2 => "\t부제목을 입력하세요",
+                    3 => "\t섹션 제목을 입력하세요",
+                    4 => "\t소제목을 입력하세요",
+                    5 => "\t작은 제목을 입력하세요",
+                    6 => "\t가장 작은 제목을 입력하세요",
+                    _ => "\t제목을 입력하세요"
                 };
                 return;
             }
@@ -164,54 +205,42 @@ namespace Notea.Modules.Subject.ViewModels
                 return;
             }
 
-            // 코드 블록
-            if (Content == "```")
+            // 빈 줄일 때
+            if (string.IsNullOrWhiteSpace(Content))
             {
-                Placeholder = "코드를 입력하세요";
+                Placeholder = "내용을 입력하세요...";
                 return;
             }
 
-            // 시간대별 기본 플레이스홀더
-            var hour = DateTime.Now.Hour;
-            if (hour >= 5 && hour < 12)
+            // 그 외의 경우 placeholder 없음
+            Placeholder = "";
+        }
+
+        // 엔터 처리 시 리스트/제목 정리를 위한 메서드
+        public bool ShouldCleanupOnEnter()
+        {
+            // 리스트 기호만 있는 경우
+            if (Regex.IsMatch(Content, @"^(\-|\*|\+)\s*$"))
             {
-                var morningPlaceholders = new[]
-                {
-                    "오늘 어떤 걸 배우셨나요",
-                    "내용을 입력하세요",
-                    "오늘 가장 어려웠던 건 무엇인가요"
-                };
-                Placeholder = morningPlaceholders[Math.Abs(GetHashCode()) % morningPlaceholders.Length];
+                Content = ""; // 리스트 기호 제거
+                return true;
             }
-            else if (hour >= 12 && hour < 18)
+
+            // 순서 있는 리스트 기호만 있는 경우
+            if (Regex.IsMatch(Content, @"^\d+\.\s*$"))
             {
-                var afternoonPlaceholders = new[]
-                {
-                    "오후의 공부를 기록하세요",
-                    "무엇을 기록하시겠어요?",
-                    "생각을 정리해보세요"
-                };
-                Placeholder = afternoonPlaceholders[Math.Abs(GetHashCode()) % afternoonPlaceholders.Length];
+                Content = ""; // 번호 제거
+                return true;
             }
-            else if (hour >= 18 && hour < 22)
+
+            // 제목 기호만 있는 경우
+            if (Regex.IsMatch(Content, @"^#{1,6}\s*$"))
             {
-                var eveningPlaceholders = new[]
-                {
-                    "하루를 정리해보세요",
-                    "저녁의 생각을 적어보세요",
-                    "오늘의 배움을 기록하세요"
-                };
-                Placeholder = eveningPlaceholders[Math.Abs(GetHashCode()) % eveningPlaceholders.Length];
+                Content = ""; // 제목 기호 제거
+                return true;
             }
-            else
-            {
-                var nightPlaceholders = new[]
-                {
-                    "공부는 역시 밤이 잘 돼요",
-                    "조용한 새벽이 공부가 잘 돼요",
-                };
-                Placeholder = nightPlaceholders[Math.Abs(GetHashCode()) % nightPlaceholders.Length];
-            }
+
+            return false;
         }
 
         public double FontSize
@@ -275,9 +304,28 @@ namespace Notea.Modules.Subject.ViewModels
 
         private string PreprocessContent(string input)
         {
+            if (input == null) return "";
+
             return input
-                .Replace("->", "→")
-                .Replace("=>", "⇒")
+                .Replace("/cap ", "∩")
+                .Replace("/cup ", "∪")
+                .Replace("/inf ", "∞")
+                .Replace("/pd ", "∂")
+                .Replace("/sum ", "∑")
+                .Replace("/int ", "∫")
+                .Replace("/sqrt ", "√")
+                .Replace("/theta ", "θ")
+                .Replace("/pi ", "π")
+                .Replace("/mu ", "μ")
+                .Replace("/sigma ", "σ")
+                .Replace(":. ", "∴")
+                .Replace(":> ", "∵")
+                .Replace("-> ", "→")
+                .Replace("<- ", "←")
+                .Replace("!= ", "≠")
+                .Replace("~= ", "≈")
+                .Replace("<= ", "≤")
+                .Replace(">= ", "≥")
                 .Replace("ㄴ ", "↳");
         }
 
@@ -312,6 +360,7 @@ namespace Notea.Modules.Subject.ViewModels
                 Margin = new Thickness(4);
                 return;
             }
+
             if (Regex.IsMatch(Content, @"^\*\*(.*?)\*\*$"))
             {
                 FontWeight = FontWeights.Bold;
@@ -330,7 +379,7 @@ namespace Notea.Modules.Subject.ViewModels
 
                 FontWeight = FontWeights.SemiBold;
                 FontSize = 14;
-                Margin = new Thickness(1);
+                Margin = new Thickness(20, 4, 4, 4);
 
                 return;
             }
@@ -351,24 +400,21 @@ namespace Notea.Modules.Subject.ViewModels
         public void UpdateInlinesFromContent()
         {
             var newInlines = new ObservableCollection<Inline>();
-
             var font = new FontFamily(new Uri("pack://application:,,,/"), "./Resources/Fonts/#Pretendard Variable");
 
             if (string.IsNullOrEmpty(Content))
             {
-                Debug.WriteLine("[DEBUG] Content is null or empty.");
                 Inlines = newInlines;
                 return;
             }
 
-            // 1. Heading 처리 먼저
+            // 1. Heading 처리
             var headingMatch = Regex.Match(Content, @"^(#{1,6})\s*(.*)");
             if (headingMatch.Success)
             {
                 int level = headingMatch.Groups[1].Value.Length;
                 string text = headingMatch.Groups[2].Value;
 
-                // 헤딩 레벨에 따른 폰트 크기 계산
                 double headingFontSize = level switch
                 {
                     1 => 26,
@@ -388,9 +434,9 @@ namespace Notea.Modules.Subject.ViewModels
                 };
 
                 newInlines.Add(run);
-                Inlines = newInlines; // 전체 교체
-                OnPropertyChanged(nameof(Inlines)); // 명시적으로 PropertyChanged 발생
-                return; // 헤딩이면 여기서 종료 (인라인 마크다운 안 함)
+                Inlines = newInlines;
+                OnPropertyChanged(nameof(Inlines));
+                return;
             }
 
             // 2. 인라인 마크다운 처리
@@ -409,24 +455,42 @@ namespace Notea.Modules.Subject.ViewModels
 
                 if (match.Value.StartsWith("**"))
                 {
-                    var boldRun = new Run(match.Groups[2].Value) { FontFamily = font, FontSize = FontSize };
-                    newInlines.Add(new Bold(boldRun) { FontFamily = font });
+                    var boldRun = new Run(match.Groups[2].Value)
+                    {
+                        FontFamily = font,
+                        FontSize = FontSize,
+                        FontWeight = FontWeights.Bold
+                    };
+                    newInlines.Add(boldRun);
                 }
                 else if (match.Value.StartsWith("*"))
                 {
-                    var italicRun = new Run(match.Groups[3].Value) { FontFamily = font, FontSize = FontSize };
-                    newInlines.Add(new Italic(italicRun) { FontFamily = font });
+                    var italicRun = new Run(match.Groups[3].Value)
+                    {
+                        FontFamily = font,
+                        FontSize = FontSize,
+                        FontStyle = FontStyles.Italic
+                    };
+                    newInlines.Add(italicRun);
                 }
                 else if (match.Value.StartsWith("__"))
                 {
-                    var underline = new Run(match.Groups[4].Value) { FontFamily = font, FontSize = FontSize };
-                    underline.TextDecorations = TextDecorations.Underline;
+                    var underline = new Run(match.Groups[4].Value)
+                    {
+                        FontFamily = font,
+                        FontSize = FontSize,
+                        TextDecorations = TextDecorations.Underline
+                    };
                     newInlines.Add(underline);
                 }
                 else if (match.Value.StartsWith("~~"))
                 {
-                    var strike = new Run(match.Groups[5].Value) { FontFamily = font, FontSize = FontSize };
-                    strike.TextDecorations = TextDecorations.Strikethrough;
+                    var strike = new Run(match.Groups[5].Value)
+                    {
+                        FontFamily = font,
+                        FontSize = FontSize,
+                        TextDecorations = TextDecorations.Strikethrough
+                    };
                     newInlines.Add(strike);
                 }
 
@@ -438,18 +502,15 @@ namespace Notea.Modules.Subject.ViewModels
                 newInlines.Add(new Run(Content.Substring(lastIndex)) { FontFamily = font, FontSize = FontSize });
             }
 
-            Inlines = newInlines; // 전체 교체
-            OnPropertyChanged(nameof(Inlines)); // 명시적으로 PropertyChanged 발생
-            OnPropertyChanged(nameof(FontSize));
-            OnPropertyChanged(nameof(FontWeight));
-            OnPropertyChanged(nameof(Margin));
+            Inlines = newInlines;
+            OnPropertyChanged(nameof(Inlines));
         }
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        private void OnPropertyChanged([CallerMemberName] string name = "")
+        protected void OnPropertyChanged([CallerMemberName] string name = "")
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
