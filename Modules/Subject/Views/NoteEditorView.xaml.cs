@@ -132,11 +132,16 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (sender is not TextBox textBox ||
-                textBox.DataContext is not MarkdownLineViewModel lineVM ||
-                this.DataContext is not NoteEditorViewModel vm)
-                return;
+            var textBox = sender as TextBox;
+            if (textBox == null) return;
 
+            var lineVM = textBox.DataContext as MarkdownLineViewModel;
+            if (lineVM == null) return;
+
+            var vm = this.DataContext as NoteEditorViewModel;
+            if (vm == null) return;
+
+            // 기존 Enter, Backspace 처리
             if (e.Key == Key.Enter)
             {
                 e.Handled = true;
@@ -146,10 +151,221 @@ namespace Notea.Modules.Subject.Views
             {
                 e.Handled = HandleBackspace(vm, textBox, lineVM);
             }
-            else if (e.Key == Key.B && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            // 마크다운 단축키 처리
+            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
-                e.Handled = HandleBoldShortcut(textBox);
+                switch (e.Key)
+                {
+                    case Key.B:
+                        e.Handled = HandleBoldShortcut(textBox);
+                        break;
+                    case Key.I:
+                        e.Handled = HandleItalicShortcut(textBox);
+                        break;
+                    case Key.U:
+                        e.Handled = HandleUnderlineShortcut(textBox);
+                        break;
+                    case Key.X when Keyboard.Modifiers.HasFlag(ModifierKeys.Shift):
+                        e.Handled = HandleStrikethroughShortcut(textBox);
+                        break;
+                }
             }
+            // 방향키 네비게이션 추가
+            else if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
+            {
+                e.Handled = HandleArrowNavigation(vm, textBox, lineVM, e.Key);
+            }
+        }
+
+        // 방향키 네비게이션 처리
+        private bool HandleArrowNavigation(NoteEditorViewModel vm, TextBox textBox, MarkdownLineViewModel lineVM, Key key)
+        {
+            int currentIndex = vm.Lines.IndexOf(lineVM);
+            int caretPos = textBox.CaretIndex;
+            int textLength = textBox.Text.Length;
+
+            switch (key)
+            {
+                case Key.Up:
+                    // 첫 번째 줄이 아니면 위로 이동
+                    if (currentIndex > 0)
+                    {
+                        return MoveToLine(vm, currentIndex - 1, caretPos);
+                    }
+                    break;
+
+                case Key.Down:
+                    // 마지막 줄이 아니면 아래로 이동
+                    if (currentIndex < vm.Lines.Count - 1)
+                    {
+                        return MoveToLine(vm, currentIndex + 1, caretPos);
+                    }
+                    break;
+
+                case Key.Left:
+                    // 커서가 맨 앞이고 첫 번째 줄이 아니면 이전 줄 끝으로
+                    if (caretPos == 0 && currentIndex > 0)
+                    {
+                        return MoveToLine(vm, currentIndex - 1, -1); // -1은 줄 끝을 의미
+                    }
+                    break;
+
+                case Key.Right:
+                    // 커서가 맨 끝이고 마지막 줄이 아니면 다음 줄 시작으로
+                    if (caretPos == textLength && currentIndex < vm.Lines.Count - 1)
+                    {
+                        return MoveToLine(vm, currentIndex + 1, 0);
+                    }
+                    break;
+            }
+
+            return false;
+        }
+
+        // 특정 라인으로 이동 (부드러운 전환 버전)
+        private bool MoveToLine(NoteEditorViewModel vm, int targetIndex, int caretPosition)
+        {
+            if (targetIndex < 0 || targetIndex >= vm.Lines.Count)
+                return false;
+
+            var currentLine = vm.Lines.FirstOrDefault(l => l.IsEditing);
+            var targetLine = vm.Lines[targetIndex];
+
+            if (currentLine == targetLine)
+                return false;
+
+            // 내부 포커스 변경 플래그 설정
+            _isInternalFocusChange = true;
+
+            // 타겟 라인을 먼저 편집 모드로 설정 (깜빡임 방지)
+            targetLine.IsEditing = true;
+
+            // 짧은 지연 후 포커스 이동 (템플릿 전환 시간 확보)
+            Dispatcher.InvokeAsync(() =>
+            {
+                editorView.UpdateLayout();
+
+                var container = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(targetIndex) as FrameworkElement;
+                if (container != null)
+                {
+                    var targetTextBox = FindVisualChild<TextBox>(container);
+                    if (targetTextBox != null)
+                    {
+                        targetTextBox.Focus();
+
+                        // 커서 위치 설정
+                        if (caretPosition == -1)
+                        {
+                            targetTextBox.CaretIndex = targetTextBox.Text.Length;
+                        }
+                        else if (caretPosition >= 0)
+                        {
+                            targetTextBox.CaretIndex = Math.Min(caretPosition, targetTextBox.Text.Length);
+                        }
+
+                        // 이전 라인의 편집 모드를 나중에 해제 (포커스 이동 후)
+                        if (currentLine != null && currentLine != targetLine)
+                        {
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                currentLine.IsEditing = false;
+                                _isInternalFocusChange = false;
+                            }, DispatcherPriority.Background);
+                        }
+
+                        container.BringIntoView();
+                    }
+                }
+            }, DispatcherPriority.Render); // Input보다 빠른 우선순위
+
+            return true;
+        }
+
+        // 마크다운 토글 처리 (개선된 버전)
+        private bool HandleMarkdownToggle(TextBox textBox, string markdownSymbol)
+        {
+            if (textBox.SelectionLength == 0)
+            {
+                // 선택한 텍스트가 없으면 마크다운 기호만 삽입하고 커서를 중간에 위치
+                int caretPos = textBox.CaretIndex;
+                textBox.Text = textBox.Text.Insert(caretPos, markdownSymbol + markdownSymbol);
+                textBox.CaretIndex = caretPos + markdownSymbol.Length;
+                return true;
+            }
+
+            string fullText = textBox.Text;
+            string selectedText = textBox.SelectedText;
+            int selectionStart = textBox.SelectionStart;
+            int selectionEnd = selectionStart + textBox.SelectionLength;
+            int symbolLength = markdownSymbol.Length;
+
+            // 선택 영역 앞뒤로 정확히 해당 마크다운 기호가 있는지 확인
+            bool hasExactMarkdownBefore = false;
+            bool hasExactMarkdownAfter = false;
+
+            if (selectionStart >= symbolLength && selectionEnd + symbolLength <= fullText.Length)
+            {
+                string beforeSymbol = fullText.Substring(selectionStart - symbolLength, symbolLength);
+                string afterSymbol = fullText.Substring(selectionEnd, symbolLength);
+
+                hasExactMarkdownBefore = beforeSymbol == markdownSymbol;
+                hasExactMarkdownAfter = afterSymbol == markdownSymbol;
+
+                // ** 와 * 구분하기 위한 추가 체크
+                if (markdownSymbol == "*" && hasExactMarkdownBefore && selectionStart >= 2)
+                {
+                    if (fullText[selectionStart - 2] == '*')
+                        hasExactMarkdownBefore = false;
+                }
+                if (markdownSymbol == "*" && hasExactMarkdownAfter && selectionEnd + 1 < fullText.Length)
+                {
+                    if (fullText[selectionEnd + 1] == '*')
+                        hasExactMarkdownAfter = false;
+                }
+            }
+
+            if (hasExactMarkdownBefore && hasExactMarkdownAfter)
+            {
+                // 마크다운 제거
+                textBox.Text = fullText.Remove(selectionEnd, symbolLength)
+                                      .Remove(selectionStart - symbolLength, symbolLength);
+
+                textBox.SelectionStart = selectionStart - symbolLength;
+                textBox.SelectionLength = selectedText.Length;
+            }
+            else
+            {
+                // 마크다운 추가
+                string formattedText = markdownSymbol + selectedText + markdownSymbol;
+                textBox.Text = fullText.Remove(selectionStart, textBox.SelectionLength)
+                                      .Insert(selectionStart, formattedText);
+
+                textBox.SelectionStart = selectionStart;
+                textBox.SelectionLength = formattedText.Length;
+            }
+
+            return true;
+        }
+
+        // 각 마크다운 단축키 처리
+        private bool HandleBoldShortcut(TextBox textBox)
+        {
+            return HandleMarkdownToggle(textBox, "**");
+        }
+
+        private bool HandleItalicShortcut(TextBox textBox)
+        {
+            return HandleMarkdownToggle(textBox, "*");
+        }
+
+        private bool HandleUnderlineShortcut(TextBox textBox)
+        {
+            return HandleMarkdownToggle(textBox, "__");
+        }
+
+        private bool HandleStrikethroughShortcut(TextBox textBox)
+        {
+            return HandleMarkdownToggle(textBox, "~~");
         }
 
         private void HandleEnter(NoteEditorViewModel vm)
@@ -227,21 +443,6 @@ namespace Notea.Modules.Subject.Views
             return true;
         }
 
-        private bool HandleBoldShortcut(TextBox textBox)
-        {
-
-            if (textBox.SelectionLength == 0) return false;
-
-            string selected = textBox.SelectedText;
-            string bolded = $"**{selected}**";
-            int start = textBox.SelectionStart;
-
-            textBox.Text = textBox.Text.Remove(start, textBox.SelectionLength).Insert(start, bolded);
-            textBox.SelectionStart = start;
-            textBox.SelectionLength = bolded.Length;
-
-            return true;
-        }
         private void FocusTextBoxAtIndex(int index)
         {
             var container = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;

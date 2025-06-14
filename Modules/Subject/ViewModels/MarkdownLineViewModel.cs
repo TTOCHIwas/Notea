@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -19,11 +20,13 @@ namespace Notea.Modules.Subject.ViewModels
         private int _headingLevel = 0;
         private string _rawContent;
         private bool _isEditing;
+        private string _placeholder = "텍스트를 입력하세요...";
 
         public MarkdownLineViewModel()
         {
             Content = "";
             UpdateInlinesFromContent();
+            UpdatePlaceholder();
         }
 
         public string RawContent
@@ -47,7 +50,7 @@ namespace Notea.Modules.Subject.ViewModels
                 _inlines = value;
                 OnPropertyChanged();
             }
-           }
+        }
 
         public bool IsEditing
         {
@@ -74,7 +77,140 @@ namespace Notea.Modules.Subject.ViewModels
                     OnPropertyChanged();
                     ApplyMarkdownStyle();
                     UpdateInlinesFromContent();
+                    UpdatePlaceholder();
+                    OnPropertyChanged(nameof(ShowPlaceholder));
                 }
+            }
+        }
+
+        public string Placeholder
+        {
+            get => _placeholder;
+            set
+            {
+                if (_placeholder != value)
+                {
+                    _placeholder = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowPlaceholder
+        {
+            get
+            {
+                // Content가 비어있거나 특정 패턴만 있을 때 true
+                if (string.IsNullOrWhiteSpace(Content))
+                    return true;
+
+                // 제목 기호만 있는 경우
+                var headingOnlyPattern = @"^#{1,6}\s*$";
+                if (Regex.IsMatch(Content, headingOnlyPattern))
+                    return true;
+
+                // 리스트 기호만 있는 경우
+                var listOnlyPattern = @"^(\-|\*|\+)\s*$";
+                if (Regex.IsMatch(Content, listOnlyPattern))
+                    return true;
+
+                // 순서 있는 리스트 기호만 있는 경우
+                var orderedListOnlyPattern = @"^\d+\.\s*$";
+                if (Regex.IsMatch(Content, orderedListOnlyPattern))
+                    return true;
+
+                // 코드 블록 시작만 있는 경우
+                if (Content == "```")
+                    return true;
+
+                return false;
+            }
+        }
+
+        private void UpdatePlaceholder()
+        {
+            // 제목 레벨에 따른 플레이스홀더
+            var headingMatch = Regex.Match(Content, @"^(#{1,6})\s*$");
+            if (headingMatch.Success)
+            {
+                int level = headingMatch.Groups[1].Value.Length;
+                Placeholder = level switch
+                {
+                    1 => "제목을 입력하세요",
+                    2 => "부제목을 입력하세요",
+                    3 => "섹션 제목을 입력하세요",
+                    4 => "소제목을 입력하세요",
+                    5 => "작은 제목을 입력하세요",
+                    6 => "가장 작은 제목을 입력하세요",
+                    _ => "제목을 입력하세요"
+                };
+                return;
+            }
+
+            // 리스트에 따른 플레이스홀더
+            var listMatch = Regex.Match(Content, @"^(\-|\*|\+)\s*$");
+            if (listMatch.Success)
+            {
+                Placeholder = "목록 항목을 입력하세요";
+                return;
+            }
+
+            // 순서 있는 리스트
+            var orderedListMatch = Regex.Match(Content, @"^(\d+)\.\s*$");
+            if (orderedListMatch.Success)
+            {
+                var number = orderedListMatch.Groups[1].Value;
+                Placeholder = $"{number}번 항목을 입력하세요";
+                return;
+            }
+
+            // 코드 블록
+            if (Content == "```")
+            {
+                Placeholder = "코드를 입력하세요";
+                return;
+            }
+
+            // 시간대별 기본 플레이스홀더
+            var hour = DateTime.Now.Hour;
+            if (hour >= 5 && hour < 12)
+            {
+                var morningPlaceholders = new[]
+                {
+                    "오늘 어떤 걸 배우셨나요",
+                    "내용을 입력하세요",
+                    "오늘 가장 어려웠던 건 무엇인가요"
+                };
+                Placeholder = morningPlaceholders[Math.Abs(GetHashCode()) % morningPlaceholders.Length];
+            }
+            else if (hour >= 12 && hour < 18)
+            {
+                var afternoonPlaceholders = new[]
+                {
+                    "오후의 공부를 기록하세요",
+                    "무엇을 기록하시겠어요?",
+                    "생각을 정리해보세요"
+                };
+                Placeholder = afternoonPlaceholders[Math.Abs(GetHashCode()) % afternoonPlaceholders.Length];
+            }
+            else if (hour >= 18 && hour < 22)
+            {
+                var eveningPlaceholders = new[]
+                {
+                    "하루를 정리해보세요",
+                    "저녁의 생각을 적어보세요",
+                    "오늘의 배움을 기록하세요"
+                };
+                Placeholder = eveningPlaceholders[Math.Abs(GetHashCode()) % eveningPlaceholders.Length];
+            }
+            else
+            {
+                var nightPlaceholders = new[]
+                {
+                    "공부는 역시 밤이 잘 돼요",
+                    "조용한 새벽이 공부가 잘 돼요",
+                };
+                Placeholder = nightPlaceholders[Math.Abs(GetHashCode()) % nightPlaceholders.Length];
             }
         }
 
@@ -214,13 +350,6 @@ namespace Notea.Modules.Subject.ViewModels
 
         public void UpdateInlinesFromContent()
         {
-
-            Debug.WriteLine("═════════════════════════════════════");
-            Debug.WriteLine($"[DEBUG] UpdateInlinesFromContent 호출! Content = \"{Content}\"");
-            Debug.WriteLine($"[DEBUG] IsEditing = {IsEditing}, IsHeading = {IsHeading}, HeadingLevel = {HeadingLevel}");
-            Debug.WriteLine(Environment.StackTrace);
-
-            // 새로운 컬렉션 생성 (바인딩 업데이트 강제)
             var newInlines = new ObservableCollection<Inline>();
 
             var font = new FontFamily(new Uri("pack://application:,,,/"), "./Resources/Fonts/#Pretendard Variable");
@@ -257,8 +386,6 @@ namespace Notea.Modules.Subject.ViewModels
                     FontWeight = FontWeights.Bold,
                     FontFamily = font
                 };
-
-                Debug.WriteLine($"[DEBUG] Creating heading: Level={level}, Text='{text}', FontSize={headingFontSize}");
 
                 newInlines.Add(run);
                 Inlines = newInlines; // 전체 교체
@@ -317,8 +444,6 @@ namespace Notea.Modules.Subject.ViewModels
             OnPropertyChanged(nameof(FontWeight));
             OnPropertyChanged(nameof(Margin));
         }
-
-
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
 

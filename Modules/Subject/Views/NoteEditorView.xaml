@@ -1,11 +1,12 @@
-﻿<UserControl x:Class="Notea.Modules.Subject.Views.NoteEditorView"
+﻿<!-- NoteEditorView.xaml 수정 -->
+<UserControl x:Class="Notea.Modules.Subject.Views.NoteEditorView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Notea.Modules.Subject.ViewModels"
              xmlns:local="clr-namespace:Notea.Converters"
              xmlns:controls="clr-namespace:Notea.Controls"
-             x:Name="editorView"
-             >
+             x:Name="editorView">
+
     <UserControl.DataContext>
         <vm:NoteEditorViewModel />
     </UserControl.DataContext>
@@ -13,6 +14,17 @@
     <UserControl.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
         <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+
+        <!-- Placeholder 스타일 -->
+        <Style x:Key="PlaceholderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Resources/Fonts/#Pretendard Variable" />
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontStyle" Value="Italic" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+
+        <QuadraticEase x:Key="QuadraticEase" EasingMode="EaseOut"/>
+
         <Style TargetType="TextBox">
             <Setter Property="FontFamily" Value="pack://application:,,,/Resources/Fonts/#Pretendard Variable" />
         </Style>
@@ -24,35 +36,89 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel>
             <ItemsControl x:Name="ItemsControlContainer" ItemsSource="{Binding Lines}">
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Style.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation 
+                                            Storyboard.TargetProperty="Opacity"
+                                            From="0" To="1" 
+                                            Duration="0:0:0.08"
+                                            EasingFunction="{StaticResource QuadraticEase}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Grid>
-                            <!-- TextBox (편집 상태일 때만 보임) -->
-                            <TextBox
-                                 x:Name="InlineEditor"
-                                 Text="{Binding Content, UpdateSourceTrigger=PropertyChanged}"
-                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibilityConverter}}"
-                                 FontSize="{Binding FontSize}"
-                                 FontWeight="{Binding FontWeight}"
-                                 Margin="{Binding Margin}"
-                                 GotFocus="TextBox_GotFocus"
-                                 LostFocus="TextBox_LostFocus"
-                                 BorderThickness="0"
-                                 Background="Transparent"
-                                 PreviewKeyDown="TextBox_PreviewKeyDown"/>
+                            <!-- 편집 모드 -->
+                            <Grid Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <!-- Placeholder TextBlock -->
+                                <TextBlock Text="{Binding Placeholder}"
+                                         FontSize="{Binding FontSize}"
+                                         FontWeight="{Binding FontWeight}"
+                                         Margin="{Binding Margin}"
+                                         Visibility="{Binding ShowPlaceholder, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <!-- 제목인 경우 왼쪽 마진 추가 -->
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource PlaceholderTextStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="1">
+                                                    <Setter Property="Margin" Value="25,4,4,4" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="2">
+                                                    <Setter Property="Margin" Value="35,4,4,4" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="3">
+                                                    <Setter Property="Margin" Value="45,4,4,4" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
 
-                            <!-- TextBlock (렌더링 상태일 때만 보임) -->
-                            <controls:MarkdownTextBlock 
-                                Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                FontSize="{Binding FontSize}"
-                                FontWeight="{Binding FontWeight}"
-                                Margin="{Binding Margin}"
-                                Cursor="IBeam"
-                                Background="Transparent"
-                                MouseDown="TextBlock_MouseDown"
-                                InlinesSource="{Binding Inlines}"
-                                Content="{Binding Content}">
-                            </controls:MarkdownTextBlock>
+                                <!-- TextBox -->
+                                <TextBox x:Name="InlineEditor"
+                                     Text="{Binding Content, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="{Binding FontSize}"
+                                     FontWeight="{Binding FontWeight}"
+                                     Margin="{Binding Margin}"
+                                     GotFocus="TextBox_GotFocus"
+                                     LostFocus="TextBox_LostFocus"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     PreviewKeyDown="TextBox_PreviewKeyDown"/>
+                            </Grid>
+
+                            <!-- 뷰 모드 -->
+                            <Grid Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                                <!-- 빈 줄 Placeholder (뷰 모드) -->
+                                <TextBlock Text="{Binding Placeholder}"
+                                         Style="{StaticResource PlaceholderTextStyle}"
+                                         FontSize="{Binding FontSize}"
+                                         Margin="{Binding Margin}"
+                                         Cursor="IBeam"
+                                         MouseDown="TextBlock_MouseDown"
+                                         Visibility="{Binding ShowPlaceholder, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+                                <!-- MarkdownTextBlock -->
+                                <controls:MarkdownTextBlock 
+                                    Visibility="{Binding ShowPlaceholder, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    FontSize="{Binding FontSize}"
+                                    FontWeight="{Binding FontWeight}"
+                                    Margin="{Binding Margin}"
+                                    Cursor="IBeam"
+                                    Background="Transparent"
+                                    MouseDown="TextBlock_MouseDown"
+                                    InlinesSource="{Binding Inlines}"
+                                    Content="{Binding Content}" />
+                            </Grid>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
