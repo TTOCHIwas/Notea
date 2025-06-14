@@ -1,0 +1,83 @@
+﻿<UserControl x:Class="Notea.Modules.Subject.Views.NoteEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Notea.Modules.Subject.ViewModels"
+             xmlns:local="clr-namespace:Notea.Converters"
+             x:Name="editorView"
+             >
+    <UserControl.DataContext>
+        <vm:NoteEditorViewModel />
+    </UserControl.DataContext>
+
+    <UserControl.Resources>
+        <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+        <Style TargetType="TextBox">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Resources/Fonts/#Pretendard Variable" />
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="pack://application:,,,/Resources/Fonts/#Pretendard Variable" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <ItemsControl x:Name="ItemsControlContainer" ItemsSource="{Binding Lines}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <!--<DockPanel LastChildFill="True" Margin="0">
+                            <TextBox
+                                x:Name="InlineEditor"
+                                Text="{Binding DisplayText, UpdateSourceTrigger=PropertyChanged}"
+                                FontSize="{Binding FontSize}"
+                                FontWeight="{Binding FontWeight}"
+                                Margin="{Binding Margin}"
+                                GotFocus="TextBox_GotFocus"
+                                LostFocus="TextBox_LostFocus"
+                                BorderThickness="0"
+                                Background="Transparent"
+                                PreviewKeyDown="TextBox_PreviewKeyDown"/>
+                        </DockPanel>-->
+
+                        <Grid>
+                            <!-- TextBox (편집 상태일 때만 보임) -->
+                            <TextBox
+                                 x:Name="InlineEditor"
+                                 Text="{Binding Content, UpdateSourceTrigger=PropertyChanged}"
+                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 FontSize="{Binding FontSize}"
+                                 FontWeight="{Binding FontWeight}"
+                                 Margin="{Binding Margin}"
+                                 GotFocus="TextBox_GotFocus"
+                                 LostFocus="TextBox_LostFocus"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 PreviewKeyDown="TextBox_PreviewKeyDown"/>
+
+                            <!-- TextBlock (렌더링 상태일 때만 보임) -->
+                            <TextBlock 
+                                Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                FontSize="{Binding FontSize}"
+                                FontWeight="{Binding FontWeight}"
+                                Margin="{Binding Margin}"
+                                GotFocus="TextBox_GotFocus"
+                                LostFocus="TextBox_LostFocus"
+                                Cursor="IBeam"
+                                Background="Transparent"
+                                Loaded="TextBlock_Loaded"
+                                MouseDown="TextBlock_MouseDown"
+                                TargetUpdated="TextBlock_TargetUpdated"
+                                       >
+                                <TextBlock.Inlines>
+                                    <InlineUIContainer>
+                                        <ItemsControl ItemsSource="{Binding Inlines}" />
+                                    </InlineUIContainer>
+                                </TextBlock.Inlines>
+                            </TextBlock>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
