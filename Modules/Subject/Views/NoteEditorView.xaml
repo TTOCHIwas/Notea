@@ -7,9 +7,9 @@
              xmlns:controls="clr-namespace:Notea.Controls"
              x:Name="editorView">
 
-    <UserControl.DataContext>
+    <!--<UserControl.DataContext>
         <vm:NoteEditorViewModel />
-    </UserControl.DataContext>
+    </UserControl.DataContext>-->
 
     <UserControl.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />

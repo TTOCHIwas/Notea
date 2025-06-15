@@ -34,12 +34,9 @@
                 <Grid Grid.Row="1" Grid.Column="0">
                     <!--<Grid.RowDefinitions>
                        <RowDefinition Height="*"/>
-                       <RowDefinition Height="*"/>
-                       <RowDefinition Height="*"/>
-                       <RowDefinition Height="*"/>
-                       <RowDefinition/>
-                   </Grid.RowDefinitions>
-                   <Grid.ColumnDefinitions>
+                       <RowDefinition Height="7*"/>
+                   </Grid.RowDefinitions>-->
+                   <!--<Grid.ColumnDefinitions>
                        <ColumnDefinition Width="*" x:Name="SundayColumn"/>
                        <ColumnDefinition Width="*" x:Name="MondayColumn"/>
                        <ColumnDefinition Width="*" x:Name="TuesdayColumn"/>
@@ -47,10 +44,9 @@
                        <ColumnDefinition Width="*" x:Name="ThursdayColumn"/>
                        <ColumnDefinition Width="*" x:Name="FridayColumn"/>
                        <ColumnDefinition Width="*" x:Name="SaturdayColumn"/>
-                   </Grid.ColumnDefinitions>-->
-                    <!--<local:CalendarMonth x:Name="Calendar"/>-->
-                    <local:NoteEditorView />
-
+                   </Grid.ColumnDefinitions>
+                    <local:CalendarMonth x:Name="Calendar"/>-->
+                    <local:NotePageView/>
                 </Grid>
 
             </Grid>

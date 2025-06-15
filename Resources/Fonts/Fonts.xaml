@@ -76,8 +76,12 @@
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="FontWeight" Value="Medium"/>
     </Style>
-    <Style TargetType="TextBox" x:Key="NoteSubTitle">
+    <Style TargetType="TextBox" x:Key="tboxTitleStyle">
+        <Setter Property="FontSize" Value="24"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Margin" Value="0"/>
     </Style>
 
     <Style TargetType="TextBox" x:Key="eventDetailInfo">

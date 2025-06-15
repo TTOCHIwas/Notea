@@ -15,7 +15,7 @@ namespace Notea.Modules.Subject.Views
         public NoteEditorView()
         {
             InitializeComponent();
-            this.DataContext = new NoteEditorViewModel();
+            //this.DataContext = new NoteEditorViewModel();
         }
 
         private bool _isInternalFocusChange = false;
@@ -65,12 +65,8 @@ namespace Notea.Modules.Subject.Views
         {
             if (sender is TextBox textBox && textBox.DataContext is MarkdownLineViewModel vm)
             {
-                // 텍스트가 변경될 때마다 조합 상태 업데이트
-                // 빈 텍스트가 되면 조합 상태 해제
-                if (string.IsNullOrEmpty(textBox.Text))
-                {
-                    vm.IsComposing = false;
-                }
+                // 텍스트가 실제로 있으면 조합 중이든 아니든 placeholder 숨김
+                vm.IsComposing = !string.IsNullOrEmpty(textBox.Text);
             }
         }
 
@@ -129,8 +125,15 @@ namespace Notea.Modules.Subject.Views
                     HandleEnter(vm);
                 }
             }
-            else if (e.Key == Key.Back)
+            if (e.Key == Key.Back)
             {
+                // 조합 중이고 텍스트가 비어있거나 비어질 예정이면
+                if (lineVM.IsComposing && textBox.Text.Length <= 1)
+                {
+                    // 조합 상태 해제하고 placeholder 표시되도록
+                    lineVM.IsComposing = false;
+                }
+
                 e.Handled = HandleBackspace(vm, textBox, lineVM);
             }
             // 마크다운 단축키 처리

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Notea.Modules.Subject.Models;
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -23,6 +24,11 @@ namespace Notea.Modules.Subject.ViewModels
         private string _placeholder = "";
         private bool _isComposing = false;
         private bool _hasFocus = false;
+
+        public int TextId { get; set; } // 기본 키
+        public int CategoryId { get; set; } // 제목 줄에 연결
+        public int SubjectId { get; set; } // 과목 식별용
+        public int Index { get; set; } // 줄 순서
 
         public MarkdownLineViewModel()
         {
@@ -118,6 +124,8 @@ namespace Notea.Modules.Subject.ViewModels
                     UpdateInlinesFromContent();
                     UpdatePlaceholder();
                     OnPropertyChanged(nameof(ShowPlaceholder));
+
+                    SaveToDatabase();
                 }
             }
         }
@@ -504,6 +512,18 @@ namespace Notea.Modules.Subject.ViewModels
 
             Inlines = newInlines;
             OnPropertyChanged(nameof(Inlines));
+        }
+
+        private void SaveToDatabase()
+        {
+            try
+            {
+                NoteRepository.SaveOrUpdateNoteLine(this);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] {ex.Message}");
+            }
         }
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
