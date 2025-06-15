@@ -32,7 +32,6 @@ namespace Notea.Modules.Subject.Views
 
         private void TextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-
             if (_isInternalFocusChange)
             {
                 return;
@@ -43,6 +42,9 @@ namespace Notea.Modules.Subject.Views
                 vm.HasFocus = false; // 포커스 상태 해제
                 vm.IsComposing = false; // IME 조합 상태 리셋
                 vm.UpdateInlinesFromContent();
+
+                // 즉시 저장
+                vm.SaveImmediately();
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -324,9 +326,16 @@ namespace Notea.Modules.Subject.Views
         {
             _isInternalFocusChange = true;
 
-            var currentLine = vm.Lines.LastOrDefault();
+            var currentLine = vm.Lines.LastOrDefault(l => l.IsEditing);
             var currentIndex = currentLine != null ? vm.Lines.IndexOf(currentLine) : -1;
 
+            // 현재 라인이 있고 편집 중이면 편집 모드 종료 (자동 저장됨)
+            if (currentLine != null)
+            {
+                currentLine.IsEditing = false;
+            }
+
+            // 새 라인 추가
             vm.AddNewLine();
 
             Dispatcher.InvokeAsync(() =>
@@ -340,11 +349,6 @@ namespace Notea.Modules.Subject.Views
                     if (newTextBox != null)
                     {
                         newTextBox.Focus();
-
-                        if (currentLine != null)
-                        {
-                            currentLine.IsEditing = false;
-                        }
                     }
                 }
 
@@ -358,7 +362,9 @@ namespace Notea.Modules.Subject.Views
                 return false;
 
             int index = vm.Lines.IndexOf(lineVM);
-            vm.Lines.Remove(lineVM);
+
+            // 라인 삭제 (자동으로 데이터베이스에서도 삭제됨)
+            vm.RemoveLine(lineVM);
 
             Dispatcher.BeginInvoke(() =>
             {

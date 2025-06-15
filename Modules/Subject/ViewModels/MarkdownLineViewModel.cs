@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace Notea.Modules.Subject.ViewModels
 {
@@ -24,17 +25,70 @@ namespace Notea.Modules.Subject.ViewModels
         private string _placeholder = "";
         private bool _isComposing = false;
         private bool _hasFocus = false;
+        private bool _isDirty = false;
+        private DispatcherTimer _saveTimer;
 
         public int TextId { get; set; } // 기본 키
         public int CategoryId { get; set; } // 제목 줄에 연결
         public int SubjectId { get; set; } // 과목 식별용
         public int Index { get; set; } // 줄 순서
 
+        public bool IsHeadingLine { get; set; } = false;
+
         public MarkdownLineViewModel()
         {
+            InitializeSaveTimer(); // 타이머를 먼저 초기화
             Content = "";
             UpdateInlinesFromContent();
             UpdatePlaceholder();
+        }
+
+        /// <summary>
+        /// 자동 저장을 위한 타이머 초기화
+        /// </summary>
+        private void InitializeSaveTimer()
+        {
+            _saveTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500) // 500ms 지연 후 저장
+            };
+            _saveTimer.Tick += (s, e) =>
+            {
+                _saveTimer.Stop();
+                if (_isDirty && TextId > 0)
+                {
+                    SaveToDatabase();
+                    _isDirty = false;
+                }
+            };
+        }
+
+        public string HeadingText
+        {
+            get
+            {
+                if (IsHeadingLine && NoteRepository.IsHeading(Content))
+                {
+                    return NoteRepository.ExtractHeadingText(Content);
+                }
+                return Content;
+            }
+        }
+
+        /// <summary>
+        /// 변경사항이 있는지 여부
+        /// </summary>
+        public bool IsDirty
+        {
+            get => _isDirty;
+            private set
+            {
+                if (_isDirty != value)
+                {
+                    _isDirty = value;
+                    OnPropertyChanged();
+                }
+            }
         }
 
         // 포커스 상태 추가
@@ -105,6 +159,13 @@ namespace Notea.Modules.Subject.ViewModels
                     {
                         IsComposing = false;
                         HasFocus = false;
+
+                        // 편집 완료 시 즉시 저장
+                        if (_isDirty && TextId > 0)
+                        {
+                            SaveToDatabase();
+                            _isDirty = false;
+                        }
                     }
                 }
             }
@@ -118,15 +179,50 @@ namespace Notea.Modules.Subject.ViewModels
                 var preprocessed = PreprocessContent(value);
                 if (_content != preprocessed)
                 {
+                    string oldContent = _content;
                     _content = preprocessed;
+
+                    // 제목 여부 체크
+                    bool wasHeading = IsHeadingLine;
+                    IsHeadingLine = NoteRepository.IsHeading(_content);
+
+                    // 제목 상태가 변경된 경우 처리
+                    if (wasHeading != IsHeadingLine)
+                    {
+                        OnHeadingStatusChanged(wasHeading, IsHeadingLine);
+                    }
+
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(HeadingText));
                     ApplyMarkdownStyle();
                     UpdateInlinesFromContent();
                     UpdatePlaceholder();
                     OnPropertyChanged(nameof(ShowPlaceholder));
 
-                    SaveToDatabase();
+                    // 변경사항이 있음을 표시하고 자동 저장 타이머 시작
+                    IsDirty = true;
+                    if (_saveTimer != null)
+                    {
+                        _saveTimer.Stop();
+                        _saveTimer.Start();
+                    }
                 }
+            }
+        }
+
+        private void OnHeadingStatusChanged(bool wasHeading, bool isHeading)
+        {
+            if (wasHeading && !isHeading)
+            {
+                // 제목에서 일반 텍스트로 변경됨
+                // 기존 카테고리 삭제 처리는 외부에서 관리
+                Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
+            }
+            else if (!wasHeading && isHeading)
+            {
+                // 일반 텍스트에서 제목으로 변경됨
+                // 새로운 카테고리 생성은 저장 시점에서 처리
+                Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
             }
         }
 
@@ -513,17 +609,50 @@ namespace Notea.Modules.Subject.ViewModels
             Inlines = newInlines;
             OnPropertyChanged(nameof(Inlines));
         }
-
         private void SaveToDatabase()
         {
             try
             {
-                NoteRepository.SaveOrUpdateNoteLine(this);
+                if (IsHeadingLine)
+                {
+                    // 제목인 경우 CategoryId만 확인하면 됨 (Repository에서 처리)
+                    NoteRepository.SaveOrUpdateLine(this);
+                    Debug.WriteLine($"[DB] 제목 자동 저장 완료. CategoryId: {CategoryId}, Content: {Content}");
+                }
+                else
+                {
+                    // 일반 텍스트인 경우 TextId 확인
+                    if (TextId > 0 || CategoryId > 0) // CategoryId가 있으면 저장 가능
+                    {
+                        NoteRepository.SaveOrUpdateLine(this);
+                        Debug.WriteLine($"[DB] 라인 자동 저장 완료. TextId: {TextId}, CategoryId: {CategoryId}, Content: {Content}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[DB] TextId와 CategoryId가 모두 유효하지 않아 저장 건너뜀. TextId: {TextId}, CategoryId: {CategoryId}");
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] 자동 저장 실패: {ex.Message}");
             }
+        }
+
+        public void SaveImmediately()
+        {
+            _saveTimer?.Stop(); // null-safe 호출
+            if (_isDirty)
+            {
+                SaveToDatabase();
+                _isDirty = false;
+            }
+        }
+
+        public void Dispose()
+        {
+            _saveTimer?.Stop();
+            _saveTimer = null;
         }
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
