@@ -37,7 +37,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         public MarkdownLineViewModel()
         {
-            InitializeSaveTimer(); // 타이머를 먼저 초기화
+            InitializeSaveTimer();
             Content = "";
             UpdateInlinesFromContent();
             UpdatePlaceholder();
@@ -50,12 +50,12 @@ namespace Notea.Modules.Subject.ViewModels
         {
             _saveTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(500) // 500ms 지연 후 저장
+                Interval = TimeSpan.FromMilliseconds(1000) // 1초 지연 후 저장
             };
             _saveTimer.Tick += (s, e) =>
             {
                 _saveTimer.Stop();
-                if (_isDirty && TextId > 0)
+                if (_isDirty)
                 {
                     SaveToDatabase();
                     _isDirty = false;
@@ -67,7 +67,7 @@ namespace Notea.Modules.Subject.ViewModels
         {
             get
             {
-                if (IsHeadingLine && NoteRepository.IsHeading(Content))
+                if (NoteRepository.IsMarkdownHeading(Content))
                 {
                     return NoteRepository.ExtractHeadingText(Content);
                 }
@@ -75,9 +75,6 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
-        /// <summary>
-        /// 변경사항이 있는지 여부
-        /// </summary>
         public bool IsDirty
         {
             get => _isDirty;
@@ -91,7 +88,6 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
-        // 포커스 상태 추가
         public bool HasFocus
         {
             get => _hasFocus;
@@ -106,7 +102,6 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
-        // IME 조합 중 여부
         public bool IsComposing
         {
             get => _isComposing;
@@ -154,14 +149,13 @@ namespace Notea.Modules.Subject.ViewModels
                     _isEditing = value;
                     OnPropertyChanged();
 
-                    // 편집 모드가 끝나면 조합 상태와 포커스 리셋
                     if (!_isEditing)
                     {
                         IsComposing = false;
                         HasFocus = false;
 
                         // 편집 완료 시 즉시 저장
-                        if (_isDirty && TextId > 0)
+                        if (_isDirty)
                         {
                             SaveToDatabase();
                             _isDirty = false;
@@ -182,9 +176,12 @@ namespace Notea.Modules.Subject.ViewModels
                     string oldContent = _content;
                     _content = preprocessed;
 
-                    // 제목 여부 체크
+                    // 제목 여부 체크 (화면 표시용 - 모든 제목 레벨)
                     bool wasHeading = IsHeadingLine;
-                    IsHeadingLine = NoteRepository.IsHeading(_content);
+                    bool isMarkdownHeading = NoteRepository.IsMarkdownHeading(_content);
+
+                    // 카테고리로 저장될 제목인지 체크 (# 하나만)
+                    IsHeadingLine = NoteRepository.IsCategoryHeading(_content);
 
                     // 제목 상태가 변경된 경우 처리
                     if (wasHeading != IsHeadingLine)
@@ -214,15 +211,15 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if (wasHeading && !isHeading)
             {
-                // 제목에서 일반 텍스트로 변경됨
-                // 기존 카테고리 삭제 처리는 외부에서 관리
                 Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
+                // 일반 텍스트로 변경되면 새로운 noteContent로 저장되어야 함
+                TextId = 0; // 새로운 라인으로 처리
             }
             else if (!wasHeading && isHeading)
             {
-                // 일반 텍스트에서 제목으로 변경됨
-                // 새로운 카테고리 생성은 저장 시점에서 처리
                 Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
+                // 제목으로 변경되면 새로운 category로 저장되어야 함
+                CategoryId = 0; // 새로운 카테고리로 처리
             }
         }
 
@@ -243,17 +240,13 @@ namespace Notea.Modules.Subject.ViewModels
         {
             get
             {
-                // 조합 중이면 무조건 숨기기
                 if (_isComposing) return false;
-
-                // 포커스가 없으면 숨기기
                 if (!_hasFocus) return false;
 
-                // Content가 비어있을 때만 표시
                 if (string.IsNullOrWhiteSpace(Content))
                     return true;
 
-                // 제목 기호만 있는 경우
+                // 제목 기호만 있는 경우 (모든 레벨)
                 var headingOnlyPattern = @"^#{1,6}\s*$";
                 if (Regex.IsMatch(Content, headingOnlyPattern))
                     return true;
@@ -337,7 +330,7 @@ namespace Notea.Modules.Subject.ViewModels
                 return true;
             }
 
-            // 제목 기호만 있는 경우
+            // 제목 기호만 있는 경우 (모든 레벨)
             if (Regex.IsMatch(Content, @"^#{1,6}\s*$"))
             {
                 Content = ""; // 제목 기호 제거
@@ -441,7 +434,7 @@ namespace Notea.Modules.Subject.ViewModels
                 return;
             }
 
-            // 제목 (# ~ ######)
+            // 제목 (# ~ ######) - 모든 레벨 스타일 적용
             var headingMatch = Regex.Match(Content, @"^(#{1,6})\s+(.*)");
 
             if (headingMatch.Success)
@@ -465,6 +458,7 @@ namespace Notea.Modules.Subject.ViewModels
                 return;
             }
 
+            // Bold 처리
             if (Regex.IsMatch(Content, @"^\*\*(.*?)\*\*$"))
             {
                 FontWeight = FontWeights.Bold;
@@ -474,17 +468,15 @@ namespace Notea.Modules.Subject.ViewModels
                 FontWeight = FontWeights.Normal;
             }
 
+            // 리스트 처리
             var listMatch = Regex.Match(Content, @"^(\-|\*)\s+(.*)");
-
             if (listMatch.Success)
             {
                 IsHeading = false;
                 HeadingLevel = 0;
-
                 FontWeight = FontWeights.SemiBold;
                 FontSize = 14;
                 Margin = new Thickness(20, 4, 4, 4);
-
                 return;
             }
 
@@ -512,7 +504,7 @@ namespace Notea.Modules.Subject.ViewModels
                 return;
             }
 
-            // 1. Heading 처리
+            // 1. Heading 처리 (# ~ ######) - 모든 레벨
             var headingMatch = Regex.Match(Content, @"^(#{1,6})\s*(.*)");
             if (headingMatch.Success)
             {
@@ -609,28 +601,36 @@ namespace Notea.Modules.Subject.ViewModels
             Inlines = newInlines;
             OnPropertyChanged(nameof(Inlines));
         }
+
         private void SaveToDatabase()
         {
             try
             {
-                if (IsHeadingLine)
+                // CategoryId가 유효하지 않으면 저장하지 않음
+                if (CategoryId <= 0)
                 {
-                    // 제목인 경우 CategoryId만 확인하면 됨 (Repository에서 처리)
+                    Debug.WriteLine($"[DB] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {CategoryId}, Content: {Content}");
+                    return;
+                }
+
+                // 빈 내용은 저장하지 않음
+                if (string.IsNullOrWhiteSpace(Content))
+                {
+                    Debug.WriteLine($"[DB] 빈 내용은 저장하지 않음");
+                    return;
+                }
+
+                if (IsHeadingLine)  // # 하나인 카테고리 제목인 경우
+                {
+                    // 제목인 경우
                     NoteRepository.SaveOrUpdateLine(this);
                     Debug.WriteLine($"[DB] 제목 자동 저장 완료. CategoryId: {CategoryId}, Content: {Content}");
                 }
                 else
                 {
-                    // 일반 텍스트인 경우 TextId 확인
-                    if (TextId > 0 || CategoryId > 0) // CategoryId가 있으면 저장 가능
-                    {
-                        NoteRepository.SaveOrUpdateLine(this);
-                        Debug.WriteLine($"[DB] 라인 자동 저장 완료. TextId: {TextId}, CategoryId: {CategoryId}, Content: {Content}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[DB] TextId와 CategoryId가 모두 유효하지 않아 저장 건너뜀. TextId: {TextId}, CategoryId: {CategoryId}");
-                    }
+                    // 일반 텍스트인 경우
+                    NoteRepository.SaveOrUpdateLine(this);
+                    Debug.WriteLine($"[DB] 라인 자동 저장 완료. TextId: {TextId}, CategoryId: {CategoryId}, Content: {Content}");
                 }
             }
             catch (Exception ex)
@@ -641,7 +641,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         public void SaveImmediately()
         {
-            _saveTimer?.Stop(); // null-safe 호출
+            _saveTimer?.Stop();
             if (_isDirty)
             {
                 SaveToDatabase();

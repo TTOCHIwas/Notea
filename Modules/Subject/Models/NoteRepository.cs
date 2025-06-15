@@ -1,8 +1,11 @@
 ﻿using Microsoft.Data.Sqlite;
+using Notea.Helpers;
 using Notea.Modules.Subject.ViewModels;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -12,63 +15,75 @@ namespace Notea.Modules.Subject.Models
 {
     public static class NoteRepository
     {
+        // DB 경로는 DatabaseHelper에서 관리
+        private static string GetConnectionString() => $"Data Source={DatabaseHelper.GetDatabasePath()};Version=3;";
+
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
         {
             var result = new List<NoteCategory>();
 
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
-
-            // 1. category 불러오기
-            var getCategories = conn.CreateCommand();
-            getCategories.CommandText = "SELECT categoryId, title FROM category WHERE subJectId = @sid ORDER BY categoryId";
-            getCategories.Parameters.AddWithValue("@sid", subjectId);
-
-            using var reader = getCategories.ExecuteReader();
-            while (reader.Read())
+            try
             {
-                var categoryId = reader.GetInt32(0);
-                var title = reader.GetString(1);
+                // DatabaseHelper를 사용하여 데이터 조회
+                string categoryQuery = $"SELECT categoryId, title FROM category WHERE subJectId = {subjectId} ORDER BY categoryId";
+                DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
 
-                var category = new NoteCategory
+                foreach (DataRow row in categoryTable.Rows)
                 {
-                    CategoryId = categoryId,
-                    Title = title
-                };
+                    var categoryId = Convert.ToInt32(row["categoryId"]);
+                    var title = row["title"].ToString();
 
-                result.Add(category);
-            }
-
-            // 2. 각 category에 속한 noteContent 불러오기
-            foreach (var cat in result)
-            {
-                var getNotes = conn.CreateCommand();
-                getNotes.CommandText = @"
-                SELECT TextId, content FROM noteContent 
-                WHERE categoryId = @cid AND subJectId = @sid
-                ORDER BY TextId
-            ";
-                getNotes.Parameters.AddWithValue("@cid", cat.CategoryId);
-                getNotes.Parameters.AddWithValue("@sid", subjectId);
-
-                using var notes = getNotes.ExecuteReader();
-                while (notes.Read())
-                {
-                    cat.Lines.Add(new NoteLine
+                    var category = new NoteCategory
                     {
-                        Index = notes.GetInt32(0), // TextId를 Index로 사용
-                        Content = notes.GetString(1)
-                    });
+                        CategoryId = categoryId,
+                        Title = title
+                    };
+
+                    // 각 카테고리의 콘텐츠 조회
+                    string contentQuery = $@"
+                        SELECT TextId, content FROM noteContent 
+                        WHERE categoryId = {categoryId} AND subJectId = {subjectId}
+                        ORDER BY TextId";
+
+                    DataTable contentTable = DatabaseHelper.ExecuteSelect(contentQuery);
+
+                    foreach (DataRow contentRow in contentTable.Rows)
+                    {
+                        category.Lines.Add(new NoteLine
+                        {
+                            Index = Convert.ToInt32(contentRow["TextId"]),
+                            Content = contentRow["content"].ToString()
+                        });
+                    }
+
+                    result.Add(category);
                 }
+
+                Debug.WriteLine($"[DB] LoadNotesBySubject 완료. 카테고리 수: {result.Count}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] LoadNotesBySubject 실패: {ex.Message}");
             }
 
             return result;
         }
 
         /// <summary>
-        /// 제목인지 확인하는 메서드
+        /// 카테고리로 저장할 제목인지 확인하는 메서드 - # 하나로 시작하는 경우만 카테고리로 저장
         /// </summary>
-        public static bool IsHeading(string content)
+        public static bool IsCategoryHeading(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content)) return false;
+            // ^#\s+ : 라인 시작(^) + # 하나 + 공백(\s+) + 아무 문자
+            // (?!#) : # 다음에 또 #이 오지 않는 경우만
+            return Regex.IsMatch(content.Trim(), @"^#(?!#)\s+.+");
+        }
+
+        /// <summary>
+        /// 마크다운 제목인지 확인 (렌더링용) - #~###### 모두 제목으로 표시
+        /// </summary>
+        public static bool IsMarkdownHeading(string content)
         {
             if (string.IsNullOrWhiteSpace(content)) return false;
             return Regex.IsMatch(content.Trim(), @"^#{1,6}\s+.+");
@@ -81,7 +96,7 @@ namespace Notea.Modules.Subject.Models
         {
             if (string.IsNullOrWhiteSpace(content)) return "";
 
-            var match = Regex.Match(content.Trim(), @"^#{1,6}\s+(.+)");
+            var match = Regex.Match(content.Trim(), @"^#\s+(.+)");
             return match.Success ? match.Groups[1].Value.Trim() : content;
         }
 
@@ -90,24 +105,32 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static int InsertCategory(string content, int subjectId, int timeId = 1)
         {
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
+            try
+            {
+                using var conn = new SqliteConnection(GetConnectionString());
+                conn.Open();
 
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                INSERT INTO category (title, subJectId, timeId)
-                VALUES (@title, @subjectId, @timeId);
-                SELECT last_insert_rowid();";
+                var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO category (title, subJectId, timeId)
+                    VALUES (@title, @subjectId, @timeId);
+                    SELECT last_insert_rowid();";
 
-            cmd.Parameters.AddWithValue("@title", content); // 마크다운 문법 그대로 저장
-            cmd.Parameters.AddWithValue("@subjectId", subjectId);
-            cmd.Parameters.AddWithValue("@timeId", timeId);
+                cmd.Parameters.AddWithValue("@title", content);
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                cmd.Parameters.AddWithValue("@timeId", timeId);
 
-            var result = cmd.ExecuteScalar();
-            int categoryId = Convert.ToInt32(result);
+                var result = cmd.ExecuteScalar();
+                int categoryId = Convert.ToInt32(result);
 
-            Debug.WriteLine($"[DB] 새 카테고리 삽입 완료. CategoryId: {categoryId}, Content: {content}");
-            return categoryId;
+                Debug.WriteLine($"[DB] 새 카테고리 삽입 완료. CategoryId: {categoryId}, Content: {content}");
+                return categoryId;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] InsertCategory 실패: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>
@@ -121,20 +144,20 @@ namespace Notea.Modules.Subject.Models
                 return;
             }
 
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
+            try
+            {
+                string query = $@"
+                    UPDATE category 
+                    SET title = '{content.Replace("'", "''")}'
+                    WHERE categoryId = {categoryId}";
 
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                UPDATE category 
-                SET title = @title
-                WHERE categoryId = @categoryId";
-
-            cmd.Parameters.AddWithValue("@title", content); // 마크다운 문법 그대로 저장
-            cmd.Parameters.AddWithValue("@categoryId", categoryId);
-
-            int rowsAffected = cmd.ExecuteNonQuery();
-            Debug.WriteLine($"[DB] 카테고리 업데이트 완료. CategoryId: {categoryId}, Content: {content}, 영향받은 행: {rowsAffected}");
+                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
+                Debug.WriteLine($"[DB] 카테고리 업데이트 완료. CategoryId: {categoryId}, Content: {content}, 영향받은 행: {rowsAffected}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateCategory 실패: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -148,12 +171,13 @@ namespace Notea.Modules.Subject.Models
                 return;
             }
 
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
-
-            using var transaction = conn.BeginTransaction();
             try
             {
+                using var conn = new SqliteConnection(GetConnectionString());
+                conn.Open();
+
+                using var transaction = conn.BeginTransaction();
+
                 // 1. 먼저 관련 noteContent 삭제
                 var deleteNotesCmd = conn.CreateCommand();
                 deleteNotesCmd.Transaction = transaction;
@@ -173,9 +197,7 @@ namespace Notea.Modules.Subject.Models
             }
             catch (Exception ex)
             {
-                transaction.Rollback();
-                Debug.WriteLine($"[DB ERROR] 카테고리 삭제 실패, 롤백됨: {ex.Message}");
-                throw;
+                Debug.WriteLine($"[DB ERROR] DeleteCategory 실패: {ex.Message}");
             }
         }
 
@@ -184,21 +206,32 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static int InsertNewLine(MarkdownLineViewModel line)
         {
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
+            try
+            {
+                using var conn = new SqliteConnection(GetConnectionString());
+                conn.Open();
 
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                INSERT INTO noteContent (content, subjectId, categoryId)
-                VALUES (@content, @subjectId, @categoryId);
-                SELECT last_insert_rowid();";
+                var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO noteContent (content, subJectId, categoryId)
+                    VALUES (@content, @subjectId, @categoryId);
+                    SELECT last_insert_rowid();";
 
-            cmd.Parameters.AddWithValue("@content", line.Content ?? "");
-            cmd.Parameters.AddWithValue("@subjectId", line.SubjectId);
-            cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
+                cmd.Parameters.AddWithValue("@content", line.Content ?? "");
+                cmd.Parameters.AddWithValue("@subjectId", line.SubjectId);
+                cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
 
-            var result = cmd.ExecuteScalar();
-            return Convert.ToInt32(result);
+                var result = cmd.ExecuteScalar();
+                int textId = Convert.ToInt32(result);
+
+                Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {textId}, CategoryId: {line.CategoryId}, Content: {line.Content}");
+                return textId;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] InsertNewLine 실패: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>
@@ -212,22 +245,27 @@ namespace Notea.Modules.Subject.Models
                 return;
             }
 
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
-
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                UPDATE noteContent 
-                SET content = @content
-                WHERE TextId = @textId";
-
-            cmd.Parameters.AddWithValue("@content", line.Content ?? "");
-            cmd.Parameters.AddWithValue("@textId", line.TextId);
-
-            int rowsAffected = cmd.ExecuteNonQuery();
-            if (rowsAffected == 0)
+            try
             {
-                Debug.WriteLine($"[WARNING] UpdateLine 실행됐지만 영향받은 행이 없음. TextId: {line.TextId}");
+                string query = $@"
+                    UPDATE noteContent 
+                    SET content = '{(line.Content ?? "").Replace("'", "''")}'
+                    WHERE TextId = {line.TextId}";
+
+                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
+
+                if (rowsAffected == 0)
+                {
+                    Debug.WriteLine($"[WARNING] UpdateLine 실행됐지만 영향받은 행이 없음. TextId: {line.TextId}");
+                }
+                else
+                {
+                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, Content: {line.Content}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateLine 실패: {ex.Message}");
             }
         }
 
@@ -242,15 +280,16 @@ namespace Notea.Modules.Subject.Models
                 return;
             }
 
-            using var conn = new SqliteConnection("Data Source=notea.db");
-            conn.Open();
-
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM noteContent WHERE TextId = @textId";
-            cmd.Parameters.AddWithValue("@textId", textId);
-
-            int rowsAffected = cmd.ExecuteNonQuery();
-            Debug.WriteLine($"[DB] 라인 삭제 완료. TextId: {textId}, 영향받은 행: {rowsAffected}");
+            try
+            {
+                string query = $"DELETE FROM noteContent WHERE TextId = {textId}";
+                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
+                Debug.WriteLine($"[DB] 라인 삭제 완료. TextId: {textId}, 영향받은 행: {rowsAffected}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] DeleteLine 실패: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -260,39 +299,42 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                if (IsHeading(line.Content))
+                // CategoryId가 없으면 저장하지 않음
+                if (line.CategoryId <= 0)
                 {
-                    // 제목인 경우 - 마크다운 문법 그대로 저장
-                    if (line.CategoryId <= 0)
+                    Debug.WriteLine($"[WARNING] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {line.CategoryId}");
+                    return;
+                }
+
+                if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
+                {
+                    // 카테고리(제목)인 경우
+                    if (line.IsHeadingLine && line.CategoryId > 0)
                     {
-                        // 새로운 제목 삽입
-                        int newCategoryId = InsertCategory(line.Content, line.SubjectId); // Content 그대로 저장
-                        line.CategoryId = newCategoryId;
-                        line.IsHeadingLine = true;
-                        Debug.WriteLine($"[DB] 새 제목 삽입 완료. CategoryId: {newCategoryId}, Content: {line.Content}");
+                        // 기존 제목 업데이트
+                        UpdateCategory(line.CategoryId, line.Content);
                     }
                     else
                     {
-                        // 기존 제목 업데이트
-                        UpdateCategory(line.CategoryId, line.Content); // Content 그대로 저장
-                        Debug.WriteLine($"[DB] 제목 업데이트 완료. CategoryId: {line.CategoryId}, Content: {line.Content}");
+                        // 새로운 제목 삽입
+                        int newCategoryId = InsertCategory(line.Content, line.SubjectId);
+                        line.CategoryId = newCategoryId;
+                        line.IsHeadingLine = true;
                     }
                 }
                 else
                 {
-                    // 일반 텍스트인 경우
+                    // 일반 텍스트인 경우 (##, ### 등도 포함)
                     if (line.TextId <= 0)
                     {
                         // 새로운 라인 삽입
                         int newTextId = InsertNewLine(line);
                         line.TextId = newTextId;
-                        Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {newTextId}, Content: {line.Content}");
                     }
                     else
                     {
                         // 기존 라인 업데이트
                         UpdateLine(line);
-                        Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, Content: {line.Content}");
                     }
                 }
             }
@@ -304,11 +346,11 @@ namespace Notea.Modules.Subject.Models
         }
 
         /// <summary>
-        /// 여러 라인을 한 번에 처리 (트랜잭션) - 제목/일반텍스트 구분
+        /// 여러 라인을 한 번에 처리 (트랜잭션)
         /// </summary>
         public static void SaveLinesInTransaction(List<MarkdownLineViewModel> lines)
         {
-            using var conn = new SqliteConnection("Data Source=notea.db");
+            using var conn = new SqliteConnection(GetConnectionString());
             conn.Open();
 
             using var transaction = conn.BeginTransaction();
@@ -316,31 +358,17 @@ namespace Notea.Modules.Subject.Models
             {
                 foreach (var line in lines)
                 {
-                    if (IsHeading(line.Content))
+                    if (line.CategoryId <= 0)
                     {
-                        // 제목 처리 - 마크다운 문법 그대로 저장
+                        Debug.WriteLine($"[WARNING] 트랜잭션 중 CategoryId가 유효하지 않은 라인 건너뜀. Content: {line.Content}");
+                        continue;
+                    }
 
-                        if (line.CategoryId <= 0)
+                    if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
+                    {
+                        // 제목 처리
+                        if (line.IsHeadingLine && line.CategoryId > 0)
                         {
-                            // 새로운 제목 삽입
-                            var cmd = conn.CreateCommand();
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = @"
-                                INSERT INTO category (title, subJectId, timeId)
-                                VALUES (@title, @subjectId, @timeId);
-                                SELECT last_insert_rowid();";
-
-                            cmd.Parameters.AddWithValue("@title", line.Content); // 마크다운 문법 그대로 저장
-                            cmd.Parameters.AddWithValue("@subjectId", line.SubjectId);
-                            cmd.Parameters.AddWithValue("@timeId", 1);
-
-                            var result = cmd.ExecuteScalar();
-                            line.CategoryId = Convert.ToInt32(result);
-                            line.IsHeadingLine = true;
-                        }
-                        else
-                        {
-                            // 기존 제목 업데이트
                             var cmd = conn.CreateCommand();
                             cmd.Transaction = transaction;
                             cmd.CommandText = @"
@@ -348,7 +376,7 @@ namespace Notea.Modules.Subject.Models
                                 SET title = @title
                                 WHERE categoryId = @categoryId";
 
-                            cmd.Parameters.AddWithValue("@title", line.Content); // 마크다운 문법 그대로 저장
+                            cmd.Parameters.AddWithValue("@title", line.Content);
                             cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
                             cmd.ExecuteNonQuery();
                         }
@@ -356,26 +384,8 @@ namespace Notea.Modules.Subject.Models
                     else
                     {
                         // 일반 텍스트 처리
-                        if (line.TextId <= 0)
+                        if (line.TextId > 0)
                         {
-                            // 새로운 라인 삽입
-                            var cmd = conn.CreateCommand();
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = @"
-                                INSERT INTO noteContent (content, subjectId, categoryId)
-                                VALUES (@content, @subjectId, @categoryId);
-                                SELECT last_insert_rowid();";
-
-                            cmd.Parameters.AddWithValue("@content", line.Content ?? "");
-                            cmd.Parameters.AddWithValue("@subjectId", line.SubjectId);
-                            cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
-
-                            var result = cmd.ExecuteScalar();
-                            line.TextId = Convert.ToInt32(result);
-                        }
-                        else
-                        {
-                            // 기존 라인 업데이트
                             var cmd = conn.CreateCommand();
                             cmd.Transaction = transaction;
                             cmd.CommandText = @"
@@ -399,17 +409,6 @@ namespace Notea.Modules.Subject.Models
                 Debug.WriteLine($"[DB ERROR] 트랜잭션 실패, 롤백됨: {ex.Message}");
                 throw;
             }
-        }
-
-        // 레거시 메서드들 (하위 호환성을 위해 유지)
-        public static void SaveOrUpdateNoteLine(MarkdownLineViewModel line)
-        {
-            SaveOrUpdateLine(line);
-        }
-
-        public static void SaveOrInsertNoteLine(MarkdownLineViewModel line)
-        {
-            SaveOrUpdateLine(line);
         }
     }
 }
