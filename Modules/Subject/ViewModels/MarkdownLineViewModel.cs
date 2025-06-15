@@ -212,14 +212,16 @@ namespace Notea.Modules.Subject.ViewModels
             if (wasHeading && !isHeading)
             {
                 Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
-                // 일반 텍스트로 변경되면 새로운 noteContent로 저장되어야 함
-                TextId = 0; // 새로운 라인으로 처리
+                NoteRepository.DeleteCategory(this.CategoryId);
+                CategoryId = 0;
+                TextId = 0;
             }
             else if (!wasHeading && isHeading)
             {
                 Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
-                // 제목으로 변경되면 새로운 category로 저장되어야 함
-                CategoryId = 0; // 새로운 카테고리로 처리
+                NoteRepository.DeleteLine(this.TextId);
+                CategoryId = 0;
+                TextId = 0;
             }
         }
 
@@ -607,16 +609,9 @@ namespace Notea.Modules.Subject.ViewModels
             try
             {
                 // CategoryId가 유효하지 않으면 저장하지 않음
-                if (CategoryId <= 0)
+                if (!IsHeadingLine && CategoryId <= 0)
                 {
                     Debug.WriteLine($"[DB] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {CategoryId}, Content: {Content}");
-                    return;
-                }
-
-                // 빈 내용은 저장하지 않음
-                if (string.IsNullOrWhiteSpace(Content))
-                {
-                    Debug.WriteLine($"[DB] 빈 내용은 저장하지 않음");
                     return;
                 }
 

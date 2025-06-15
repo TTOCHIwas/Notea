@@ -183,6 +183,7 @@ namespace Notea.Modules.Subject.ViewModels
                     if (line.IsHeadingLine)
                     {
                         Debug.WriteLine($"[DEBUG] 라인이 제목으로 변경됨: {line.Content}");
+                        
                     }
                     else
                     {
