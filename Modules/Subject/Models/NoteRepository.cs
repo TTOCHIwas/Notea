@@ -16,7 +16,7 @@ namespace Notea.Modules.Subject.Models
     public static class NoteRepository
     {
         // DB 경로는 DatabaseHelper에서 관리
-        private static string GetConnectionString() => $"Data Source={DatabaseHelper.GetDatabasePath()};Version=3;";
+        private static string GetConnectionString() => $"Data Source={DatabaseHelper.GetDatabasePath()};";
 
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
         {
@@ -299,12 +299,7 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                // CategoryId가 없으면 저장하지 않음
-                if (line.CategoryId <= 0)
-                {
-                    Debug.WriteLine($"[WARNING] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {line.CategoryId}");
-                    return;
-                }
+
 
                 if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
                 {
@@ -324,6 +319,13 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
+                    // CategoryId가 없으면 저장하지 않음
+                    if (line.CategoryId <= 0)
+                    {
+                        Debug.WriteLine($"[WARNING] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {line.CategoryId}");
+                        return;
+                    }
+
                     // 일반 텍스트인 경우 (##, ### 등도 포함)
                     if (line.TextId <= 0)
                     {

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
+using System.Diagnostics;
 
 namespace Notea.Helpers
 {
@@ -24,7 +25,7 @@ namespace Notea.Helpers
                 Directory.CreateDirectory(dataDir);
             }
 
-            connectionString = $"Data Source={dbPath};Version=3;";
+            connectionString = $"Data Source={dbPath};";
 
             // DB 파일이 없으면 생성
             if (!File.Exists(dbPath))
@@ -132,6 +133,16 @@ namespace Notea.Helpers
                 }
 
                 Console.WriteLine($"SELECT 쿼리 실행 성공. 반환된 행: {dt.Rows.Count}");
+
+                // 디버깅: 첫 몇 개 행의 내용 출력
+                if (dt.Rows.Count > 0)
+                {
+                    Console.WriteLine($"첫 번째 행 내용:");
+                    foreach (DataColumn col in dt.Columns)
+                    {
+                        Console.WriteLine($"  {col.ColumnName}: {dt.Rows[0][col]}");
+                    }
+                }
             }
             catch (Exception ex)
             {

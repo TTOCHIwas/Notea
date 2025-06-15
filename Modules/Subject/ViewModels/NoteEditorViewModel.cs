@@ -21,21 +21,29 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 new MarkdownLineViewModel
                 {
-                    IsEditing = false,
+                    IsEditing = true,  // 처음에 편집 가능하도록
                     SubjectId = this.SubjectId,
-                    CategoryId = this.CurrentCategoryId
+                    CategoryId = this.CurrentCategoryId,
+                    Content = ""  // 빈 내용으로 시작
                 }
             };
+
+            // PropertyChanged 이벤트 등록
+            Lines[0].PropertyChanged += OnLinePropertyChanged;
 
             Lines.CollectionChanged += (s, e) =>
             {
                 if (Lines.Count == 0)
                 {
-                    Lines.Add(new MarkdownLineViewModel
+                    var newLine = new MarkdownLineViewModel
                     {
+                        IsEditing = true,
                         SubjectId = this.SubjectId,
-                        CategoryId = this.CurrentCategoryId
-                    });
+                        CategoryId = this.CurrentCategoryId,
+                        Content = ""
+                    };
+                    newLine.PropertyChanged += OnLinePropertyChanged;
+                    Lines.Add(newLine);
                 }
             };
         }
@@ -44,44 +52,76 @@ namespace Notea.Modules.Subject.ViewModels
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>();
 
-            foreach (var category in loadedNotes)
+            if (loadedNotes != null && loadedNotes.Count > 0)
             {
-                // 카테고리 제목 추가
-                Lines.Add(new MarkdownLineViewModel
+                foreach (var category in loadedNotes)
                 {
-                    Content = category.Title,
-                    IsEditing = false,
-                    SubjectId = this.SubjectId,
-                    CategoryId = category.CategoryId,
-                    TextId = 0 // 카테고리 제목은 별도 테이블이므로 0으로 설정
-                });
+                    // 카테고리 ID 업데이트
+                    CurrentCategoryId = category.CategoryId;
 
-                // 각 라인 추가
-                foreach (var line in category.Lines)
-                {
-                    Lines.Add(new MarkdownLineViewModel
+                    // 카테고리 제목 추가
+                    var categoryLine = new MarkdownLineViewModel
                     {
-                        Content = line.Content,
+                        Content = category.Title,
                         IsEditing = false,
                         SubjectId = this.SubjectId,
                         CategoryId = category.CategoryId,
-                        TextId = line.Index, // NoteLine의 Index가 실제로는 TextId
-                        Index = Lines.Count
-                    });
-                }
-            }
+                        TextId = 0,
+                        IsHeadingLine = true  // 카테고리는 제목으로 설정
+                    };
 
-            Debug.WriteLine($"[DEBUG] 초기화된 라인 수: {Lines.Count}");
+                    Lines.Add(categoryLine);
+                    categoryLine.PropertyChanged += OnLinePropertyChanged;
+
+                    // 각 라인 추가
+                    foreach (var line in category.Lines)
+                    {
+                        var contentLine = new MarkdownLineViewModel
+                        {
+                            Content = line.Content,
+                            IsEditing = false,
+                            SubjectId = this.SubjectId,
+                            CategoryId = category.CategoryId,
+                            TextId = line.Index,
+                            Index = Lines.Count
+                        };
+
+                        Lines.Add(contentLine);
+                        contentLine.PropertyChanged += OnLinePropertyChanged;
+                    }
+                }
+
+                Debug.WriteLine($"[DEBUG] 초기화된 라인 수: {Lines.Count}, 현재 CategoryId: {CurrentCategoryId}");
+            }
+            else
+            {
+                // 로드된 데이터가 없으면 빈 라인 추가
+                Debug.WriteLine("[DEBUG] 로드된 데이터가 없음. 빈 라인 추가");
+
+                var emptyLine = new MarkdownLineViewModel
+                {
+                    IsEditing = true,
+                    SubjectId = this.SubjectId,
+                    CategoryId = this.CurrentCategoryId,
+                    Content = ""
+                };
+                emptyLine.PropertyChanged += OnLinePropertyChanged;
+                Lines.Add(emptyLine);
+            }
 
             Lines.CollectionChanged += (s, e) =>
             {
                 if (Lines.Count == 0)
                 {
-                    Lines.Add(new MarkdownLineViewModel
+                    var newLine = new MarkdownLineViewModel
                     {
+                        IsEditing = true,
                         SubjectId = this.SubjectId,
-                        CategoryId = this.CurrentCategoryId
-                    });
+                        CategoryId = this.CurrentCategoryId,
+                        Content = ""
+                    };
+                    newLine.PropertyChanged += OnLinePropertyChanged;
+                    Lines.Add(newLine);
                 }
 
                 // 라인이 제거된 경우 데이터베이스에서도 삭제
@@ -112,7 +152,7 @@ namespace Notea.Modules.Subject.ViewModels
                 IsEditing = true,
                 Content = "",
                 SubjectId = this.SubjectId,
-                CategoryId = this.CurrentCategoryId, // 현재 활성 카테고리 사용
+                CategoryId = this.CurrentCategoryId,
                 Index = Lines.Count,
                 TextId = 0
             };
@@ -120,19 +160,34 @@ namespace Notea.Modules.Subject.ViewModels
             Lines.Add(newLine);
 
             // PropertyChanged 이벤트 등록
-            newLine.PropertyChanged += OnEditorLinePropertyChanged;
+            newLine.PropertyChanged += OnLinePropertyChanged;
 
             Debug.WriteLine($"[DEBUG] 새 라인 추가됨. 현재 CategoryId: {CurrentCategoryId}");
         }
 
         private void OnLinePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (sender is MarkdownLineViewModel line && e.PropertyName == nameof(MarkdownLineViewModel.IsHeadingLine))
+            if (sender is MarkdownLineViewModel line)
             {
-                if (line.IsHeadingLine)
+                if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
                 {
-                    // 새로운 제목이 생성됨 - 이후 라인들의 CategoryId 업데이트
-                    UpdateCurrentCategory(line);
+                    // CategoryId가 변경된 경우 (새로운 제목이 저장됨)
+                    if (line.IsHeadingLine && line.CategoryId > 0)
+                    {
+                        UpdateCurrentCategory(line);
+                    }
+                }
+                else if (e.PropertyName == nameof(MarkdownLineViewModel.IsHeadingLine))
+                {
+                    // 제목 상태가 변경된 경우
+                    if (line.IsHeadingLine)
+                    {
+                        Debug.WriteLine($"[DEBUG] 라인이 제목으로 변경됨: {line.Content}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[DEBUG] 라인이 일반 텍스트로 변경됨: {line.Content}");
+                    }
                 }
             }
         }
@@ -185,7 +240,7 @@ namespace Notea.Modules.Subject.ViewModels
                 }
 
                 Lines.Remove(line);
-                line.PropertyChanged -= OnEditorLinePropertyChanged; // 이벤트 해제
+                line.PropertyChanged -= OnLinePropertyChanged; // 이벤트 해제
             }
         }
 
@@ -205,8 +260,6 @@ namespace Notea.Modules.Subject.ViewModels
 
             Debug.WriteLine($"[DEBUG] 삭제 후 현재 카테고리: {CurrentCategoryId}");
         }
-
-
 
         public void InsertNewLineAt(int index)
         {
@@ -235,7 +288,7 @@ namespace Notea.Modules.Subject.ViewModels
             };
 
             Lines.Insert(index, newLine);
-            newLine.PropertyChanged += OnEditorLinePropertyChanged;
+            newLine.PropertyChanged += OnLinePropertyChanged;
 
             Debug.WriteLine($"[DEBUG] 새 라인 삽입됨. 위치: {index}, CategoryId: {categoryId}");
         }
@@ -288,33 +341,6 @@ namespace Notea.Modules.Subject.ViewModels
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ERROR] 일괄 저장 실패: {ex.Message}");
-            }
-        }
-
-        private void OnEditorLinePropertyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (sender is MarkdownLineViewModel line)
-            {
-                if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
-                {
-                    // CategoryId가 변경된 경우 (새로운 제목이 저장됨)
-                    if (line.IsHeadingLine && line.CategoryId > 0)
-                    {
-                        UpdateCurrentCategory(line);
-                    }
-                }
-                else if (e.PropertyName == nameof(MarkdownLineViewModel.IsHeadingLine))
-                {
-                    // 제목 상태가 변경된 경우
-                    if (line.IsHeadingLine)
-                    {
-                        Debug.WriteLine($"[DEBUG] 라인이 제목으로 변경됨: {line.Content}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[DEBUG] 라인이 일반 텍스트로 변경됨: {line.Content}");
-                    }
-                }
             }
         }
 
