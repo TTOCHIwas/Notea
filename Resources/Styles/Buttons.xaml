@@ -109,31 +109,22 @@
 
     <Style x:Key="SearchButtonStyle" TargetType="Button">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
-        <Setter Property="Background" Value="#aaaaaa"/>
-        <Setter Property="Foreground" Value="#1E1e1e"/>
-        <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Margin" Value="10, 5, 10, 5"/>
-        <Setter Property="Height" Value="auto"/>
-        <Setter Property="Width" Value="auto"/>
-
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            >
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <svgc:SvgViewbox Name="icon" Source="/Resources/Images/search_default.svg" Width="16" Height="16"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="icon"
+                                    Property="Source"
+                                    Value="/Resources/Images/search_hover.svg"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="#1E1E1E"/>
-                <Setter Property="Foreground" Value="White"/>
-            </Trigger>
-        </Style.Triggers>
     </Style>
 
     <Style x:Key="FolderButtonStyle" TargetType="Button">

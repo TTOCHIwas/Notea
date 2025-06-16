@@ -23,6 +23,8 @@
     <None Remove="Resources\Images\fold_open.svg" />
     <None Remove="Resources\Images\leftSideBar_default.svg" />
     <None Remove="Resources\Images\leftSideBar_hover.svg" />
+    <None Remove="Resources\Images\search_default.svg" />
+    <None Remove="Resources\Images\search_hover.svg" />
     <None Remove="Resources\Images\up_default.svg" />
     <None Remove="Resources\Images\up_hover.svg" />
     <None Remove="Resources\Images\x_default.svg" />
@@ -52,6 +54,8 @@
     <Resource Include="Resources\Images\fold_open.svg" />
     <Resource Include="Resources\Images\leftSideBar_default.svg" />
     <Resource Include="Resources\Images\leftSideBar_hover.svg" />
+    <Resource Include="Resources\Images\search_default.svg" />
+    <Resource Include="Resources\Images\search_hover.svg" />
     <Resource Include="Resources\Images\up_default.svg" />
     <Resource Include="Resources\Images\up_hover.svg" />
     <Resource Include="Resources\Images\x_default.svg" />
