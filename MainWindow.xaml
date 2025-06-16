@@ -3,7 +3,7 @@
        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-       xmlns:local="clr-namespace:Notea.Modules.Subject.Views"
+       xmlns:local="clr-namespace:Notea.Modules.Monthly.Views"
        mc:Ignorable="d"
        Title="MainWindow" Height="800" Width="1000">
     
@@ -45,8 +45,8 @@
                        <ColumnDefinition Width="*" x:Name="FridayColumn"/>
                        <ColumnDefinition Width="*" x:Name="SaturdayColumn"/>
                    </Grid.ColumnDefinitions>-->
-                    <!--<local:CalendarMonth x:Name="Calendar"/>-->
-                    <local:NotePageView/>
+                    <local:YearMonthListView/>
+                    <!--<local:NotePageView/>-->
                 </Grid>
 
             </Grid>
