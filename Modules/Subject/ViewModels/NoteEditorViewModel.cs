@@ -53,10 +53,14 @@ namespace Notea.Modules.Subject.ViewModels
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>();
             int currentDisplayOrder = 1;
+
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
                 foreach (var category in loadedNotes)
                 {
+                    // 카테고리 ID 업데이트
+                    CurrentCategoryId = category.CategoryId;
+
                     // 카테고리 제목 추가
                     var categoryLine = new MarkdownLineViewModel
                     {
@@ -70,7 +74,7 @@ namespace Notea.Modules.Subject.ViewModels
                     };
 
                     Lines.Add(categoryLine);
-                    categoryLine.PropertyChanged += OnLinePropertyChanged;
+                    RegisterLineEvents(categoryLine); // 이벤트 등록 메서드로 분리
 
                     // 각 라인 추가
                     foreach (var line in category.Lines)
@@ -87,7 +91,7 @@ namespace Notea.Modules.Subject.ViewModels
                         };
 
                         Lines.Add(contentLine);
-                        contentLine.PropertyChanged += OnLinePropertyChanged;
+                        RegisterLineEvents(contentLine); // 이벤트 등록 메서드로 분리
                     }
                 }
 
@@ -95,52 +99,73 @@ namespace Notea.Modules.Subject.ViewModels
             }
             else
             {
-                // 로드된 데이터가 없으면 빈 라인 추가
-                Debug.WriteLine("[DEBUG] 로드된 데이터가 없음. 빈 라인 추가");
-
+                // 빈 라인 추가
                 var emptyLine = new MarkdownLineViewModel
                 {
                     IsEditing = true,
                     SubjectId = this.SubjectId,
                     CategoryId = this.CurrentCategoryId,
-                    Content = ""
+                    Content = "",
+                    DisplayOrder = 1
                 };
-                emptyLine.PropertyChanged += OnLinePropertyChanged;
                 Lines.Add(emptyLine);
+                RegisterLineEvents(emptyLine);
             }
 
-            Lines.CollectionChanged += (s, e) =>
-            {
-                if (Lines.Count == 0)
-                {
-                    var newLine = new MarkdownLineViewModel
-                    {
-                        IsEditing = true,
-                        SubjectId = this.SubjectId,
-                        CategoryId = this.CurrentCategoryId,
-                        Content = ""
-                    };
-                    newLine.PropertyChanged += OnLinePropertyChanged;
-                    Lines.Add(newLine);
-                }
-
-                // 라인이 제거된 경우 데이터베이스에서도 삭제
-                if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
-                {
-                    foreach (MarkdownLineViewModel removedLine in e.OldItems)
-                    {
-                        if (removedLine.TextId > 0)
-                        {
-                            NoteRepository.DeleteLine(removedLine.TextId);
-                            Debug.WriteLine($"[DEBUG] 라인 삭제됨. TextId: {removedLine.TextId}");
-                        }
-                    }
-                }
-
-                // 인덱스 재정렬
-                UpdateLineIndices();
-            };
+            // CollectionChanged 이벤트 한 번만 등록
+            Lines.CollectionChanged += Lines_CollectionChanged;
         }
+
+        private void RegisterLineEvents(MarkdownLineViewModel line)
+        {
+            line.PropertyChanged += OnLinePropertyChanged;
+            line.CategoryCreated += OnCategoryCreated;
+            line.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
+        }
+
+        private void UnregisterLineEvents(MarkdownLineViewModel line)
+        {
+            line.PropertyChanged -= OnLinePropertyChanged;
+            line.CategoryCreated -= OnCategoryCreated;
+            line.RequestFindPreviousCategory -= OnRequestFindPreviousCategory;
+            line.Dispose(); // Timer dispose
+        }
+
+        private void Lines_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            if (Lines.Count == 0)
+            {
+                var newLine = new MarkdownLineViewModel
+                {
+                    IsEditing = true,
+                    SubjectId = this.SubjectId,
+                    CategoryId = this.CurrentCategoryId,
+                    Content = "",
+                    DisplayOrder = 1
+                };
+                Lines.Add(newLine);
+                RegisterLineEvents(newLine);
+            }
+
+            // 라인이 제거된 경우
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+            {
+                foreach (MarkdownLineViewModel removedLine in e.OldItems)
+                {
+                    if (removedLine.TextId > 0)
+                    {
+                        NoteRepository.DeleteLine(removedLine.TextId);
+                        Debug.WriteLine($"[DEBUG] 라인 삭제됨. TextId: {removedLine.TextId}");
+                    }
+                    UnregisterLineEvents(removedLine);
+                }
+            }
+
+            // 인덱스 재정렬
+            UpdateLineIndices();
+        }
+
+
 
         /// <summary>
         /// 새로운 라인 추가
@@ -192,41 +217,21 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if (sender is MarkdownLineViewModel line)
             {
-                // CategoryCreated 이벤트 구독
-                if (e.PropertyName == null) // 처음 추가될 때
-                {
-                    line.CategoryCreated += OnCategoryCreated;
-                    line.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
-                }
                 if (e.PropertyName == nameof(MarkdownLineViewModel.Content))
                 {
                     // 일반 텍스트가 제목으로 변경되는 경우
                     if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
                     {
-                        // DisplayOrder는 유지하면서 카테고리로 변환
                         line.IsHeadingLine = true;
                         line.SaveImmediately();
-
-                        // 이후 라인들의 CategoryId 업데이트
                         UpdateSubsequentLinesCategoryId(Lines.IndexOf(line) + 1, line.CategoryId);
                     }
                 }
-                if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
+                else if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
                 {
-                    // CategoryId가 변경된 경우
                     if (line.IsHeadingLine && line.CategoryId > 0)
                     {
                         UpdateCurrentCategory(line);
-                    }
-                }
-                else if (e.PropertyName == nameof(MarkdownLineViewModel.Content))
-                {
-                    // Content가 변경되고 제목이 된 경우
-                    if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
-                    {
-                        line.IsHeadingLine = true;
-                        // 제목으로 변경되면 즉시 저장하여 CategoryId 생성
-                        line.SaveImmediately();
                     }
                 }
             }
@@ -314,28 +319,38 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 if (line.IsHeadingLine && line.CategoryId > 0)
                 {
-                    // 제목 라인 삭제 시 카테고리와 관련 모든 콘텐츠 삭제
-                    NoteRepository.DeleteCategory(line.CategoryId);
-
-                    // 이 카테고리에 속한 모든 라인들을 UI에서도 제거
-                    var linesToRemove = Lines.Where(l => l.CategoryId == line.CategoryId && l != line).ToList();
-                    foreach (var lineToRemove in linesToRemove)
+                    // 하위 텍스트들을 이전 카테고리로 재할당
+                    int previousCategoryId = GetPreviousCategoryId(Lines.IndexOf(line));
+                    if (previousCategoryId > 0)
                     {
-                        Lines.Remove(lineToRemove);
+                        NoteRepository.ReassignTextsToCategory(line.CategoryId, previousCategoryId);
                     }
 
-                    // 현재 카테고리가 삭제되는 경우, 이전 카테고리로 변경
+                    // 카테고리만 삭제 (텍스트는 재할당됨)
+                    NoteRepository.DeleteCategory(line.CategoryId, false);
+
+                    // 현재 카테고리가 삭제되는 경우
                     if (CurrentCategoryId == line.CategoryId)
                     {
-                        UpdateCurrentCategoryAfterDeletion();
+                        CurrentCategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
                     }
                 }
 
                 Lines.Remove(line);
-                line.PropertyChanged -= OnLinePropertyChanged;
-                line.CategoryCreated -= OnCategoryCreated;
-                line.RequestFindPreviousCategory -= OnRequestFindPreviousCategory;
+                UnregisterLineEvents(line); // 이벤트 해제
             }
+        }
+
+        private int GetPreviousCategoryId(int currentIndex)
+        {
+            for (int i = currentIndex - 1; i >= 0; i--)
+            {
+                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                {
+                    return Lines[i].CategoryId;
+                }
+            }
+            return 1; // 기본 카테고리
         }
 
         private void UpdateCurrentCategoryAfterDeletion()
