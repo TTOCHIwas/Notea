@@ -23,6 +23,9 @@ namespace Notea
 
             // 테이블 구조 확인 (디버깅용)
             Notea.Helpers.DatabaseHelper.CheckTableStructure();
+
+            // 전체 데이터 출력 (디버깅용)
+            Notea.Helpers.DatabaseHelper.DebugPrintAllData(1);
         }
 
         protected override void OnExit(ExitEventArgs e)

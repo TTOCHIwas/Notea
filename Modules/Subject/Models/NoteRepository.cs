@@ -162,54 +162,63 @@ namespace Notea.Modules.Subject.Models
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
         {
             var result = new List<NoteCategory>();
+            var categoryMap = new Dictionary<int, NoteCategory>();
 
             try
             {
-                // 컬럼명을 정확히 일치시킴
-                string query = $@"
-        SELECT 'category' as lineType, categoryId as id, title as content, displayOrder, 0 as parentCategoryId
-        FROM category 
-        WHERE subJectId = {subjectId}
-        UNION ALL
-        SELECT 'text' as lineType, textId as id, content, displayOrder, categoryId as parentCategoryId
-        FROM noteContent 
-        WHERE subJectId = {subjectId}
-        ORDER BY displayOrder, id";
+                // 먼저 모든 카테고리를 로드
+                string categoryQuery = $@"
+            SELECT categoryId, title, displayOrder, level
+            FROM category 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
 
-                DataTable table = DatabaseHelper.ExecuteSelect(query);
+                DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
 
-                NoteCategory currentCategory = null;
-
-                foreach (DataRow row in table.Rows)
+                foreach (DataRow row in categoryTable.Rows)
                 {
-                    string lineType = row["lineType"].ToString();
-
-                    if (lineType == "category")
+                    var category = new NoteCategory
                     {
-                        currentCategory = new NoteCategory
+                        CategoryId = Convert.ToInt32(row["categoryId"]),
+                        Title = row["title"].ToString(),
+                        Level = row["level"] != DBNull.Value ? Convert.ToInt32(row["level"]) : 1
+                    };
+                    result.Add(category);
+                    categoryMap[category.CategoryId] = category;
+                }
+
+                // 그 다음 모든 텍스트를 로드하여 해당 카테고리에 할당
+                string textQuery = $@"
+            SELECT textId, content, categoryId, displayOrder
+            FROM noteContent 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
+
+                DataTable textTable = DatabaseHelper.ExecuteSelect(textQuery);
+
+                foreach (DataRow row in textTable.Rows)
+                {
+                    int categoryId = Convert.ToInt32(row["categoryId"]);
+
+                    if (categoryMap.ContainsKey(categoryId))
+                    {
+                        categoryMap[categoryId].Lines.Add(new NoteLine
                         {
-                            CategoryId = Convert.ToInt32(row["id"]),
-                            Title = row["content"].ToString()
-                        };
-                        result.Add(currentCategory);
+                            Index = Convert.ToInt32(row["textId"]),
+                            Content = row["content"].ToString()
+                        });
                     }
-                    else if (lineType == "text" && currentCategory != null)
+                    else
                     {
-                        int parentCategoryId = Convert.ToInt32(row["parentCategoryId"]);
-                        var targetCategory = result.FirstOrDefault(c => c.CategoryId == parentCategoryId);
-
-                        if (targetCategory != null)
-                        {
-                            targetCategory.Lines.Add(new NoteLine
-                            {
-                                Index = Convert.ToInt32(row["id"]),
-                                Content = row["content"].ToString()
-                            });
-                        }
+                        Debug.WriteLine($"[WARNING] 카테고리를 찾을 수 없음. CategoryId: {categoryId}, TextId: {row["textId"]}");
                     }
                 }
 
                 Debug.WriteLine($"[DB] LoadNotesBySubject 완료. 카테고리 수: {result.Count}");
+                foreach (var cat in result)
+                {
+                    Debug.WriteLine($"  카테고리 '{cat.Title}' - 텍스트 수: {cat.Lines.Count}");
+                }
             }
             catch (Exception ex)
             {
@@ -778,32 +787,97 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static List<NoteCategory> LoadNotesBySubjectWithHierarchy(int subjectId)
         {
-            var result = new List<NoteCategory>();
+            var allCategories = new List<NoteCategory>();
+            var categoryMap = new Dictionary<int, NoteCategory>();
+            var rootCategories = new List<NoteCategory>();
 
             try
             {
-                string query = $@"
-        SELECT 'category' as lineType, categoryId as id, title as content, 
-               displayOrder, 0 as parentCategoryId, level
-        FROM category 
-        WHERE subJectId = {subjectId}
-        UNION ALL
-        SELECT 'text' as lineType, textId as id, content, 
-               displayOrder, categoryId as parentCategoryId, 0 as level
-        FROM noteContent 
-        WHERE subJectId = {subjectId}
-        ORDER BY displayOrder, id";
+                // 1. 모든 카테고리 로드
+                string categoryQuery = $@"
+            SELECT categoryId, title, displayOrder, level, parentCategoryId
+            FROM category 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
 
-                DataTable table = DatabaseHelper.ExecuteSelect(query);
+                DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
 
-                // ... 나머지 코드는 동일
+                foreach (DataRow row in categoryTable.Rows)
+                {
+                    var category = new NoteCategory
+                    {
+                        CategoryId = Convert.ToInt32(row["categoryId"]),
+                        Title = row["title"].ToString(),
+                        Level = row["level"] != DBNull.Value ? Convert.ToInt32(row["level"]) : 1
+                    };
+
+                    allCategories.Add(category);
+                    categoryMap[category.CategoryId] = category;
+
+                    // parentCategoryId가 없으면 루트 카테고리
+                    if (row["parentCategoryId"] == DBNull.Value)
+                    {
+                        rootCategories.Add(category);
+                    }
+                }
+
+                // 2. 계층 구조 구성
+                foreach (DataRow row in categoryTable.Rows)
+                {
+                    if (row["parentCategoryId"] != DBNull.Value)
+                    {
+                        int categoryId = Convert.ToInt32(row["categoryId"]);
+                        int parentId = Convert.ToInt32(row["parentCategoryId"]);
+
+                        if (categoryMap.ContainsKey(parentId) && categoryMap.ContainsKey(categoryId))
+                        {
+                            categoryMap[parentId].SubCategories.Add(categoryMap[categoryId]);
+                        }
+                    }
+                }
+
+                // 3. 모든 텍스트 로드
+                string textQuery = $@"
+            SELECT textId, content, categoryId, displayOrder
+            FROM noteContent 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
+
+                DataTable textTable = DatabaseHelper.ExecuteSelect(textQuery);
+
+                foreach (DataRow row in textTable.Rows)
+                {
+                    int categoryId = Convert.ToInt32(row["categoryId"]);
+
+                    if (categoryMap.ContainsKey(categoryId))
+                    {
+                        categoryMap[categoryId].Lines.Add(new NoteLine
+                        {
+                            Index = Convert.ToInt32(row["textId"]),
+                            Content = row["content"].ToString()
+                        });
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[WARNING] 텍스트의 카테고리를 찾을 수 없음. CategoryId: {categoryId}, TextId: {row["textId"]}");
+                    }
+                }
+
+                Debug.WriteLine($"[DB] LoadNotesBySubjectWithHierarchy 완료. 루트 카테고리 수: {rootCategories.Count}");
+                foreach (var cat in allCategories)
+                {
+                    Debug.WriteLine($"  카테고리 '{cat.Title}' (ID: {cat.CategoryId}) - 텍스트 수: {cat.Lines.Count}");
+                }
+
+                // 계층 구조가 없는 단순한 경우 모든 카테고리 반환
+                return rootCategories.Count > 0 ? rootCategories : allCategories;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] LoadNotesBySubjectWithHierarchy 실패: {ex.Message}");
             }
 
-            return result;
+            return rootCategories;
         }
 
         private static NoteCategory FindCategoryById(List<NoteCategory> categories, int categoryId)

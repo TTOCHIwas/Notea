@@ -5,7 +5,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:Notea.Modules.Subject.Views"
              xmlns:vm="clr-namespace:Notea.Modules.Subject.ViewModels"
-             mc:Ignorable="d">
+             mc:Ignorable="d"
+             Loaded="OnLoaded"
+             Unloaded="OnUnloaded">
 
     <UserControl.DataContext>
         <vm:NotePageViewModel />
@@ -14,6 +16,7 @@
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="auto"/>
             <RowDefinition Height="auto"/>
             <RowDefinition Height="7*"/>
             <RowDefinition Height="auto"/>
@@ -30,13 +33,16 @@
 
         <!-- 상단 선 -->
         <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
+        <local:SearchPanel Grid.Row="2" 
+                  DataContext="{Binding SearchViewModel}"/>
 
         <!-- NoteEditorView -->
-        <local:NoteEditorView Grid.Row="2"
+        <local:NoteEditorView Grid.Row="3"
+                              x:Name="noteEditor"
                               Margin="20"
                               DataContext="{Binding EditorViewModel}" />
 
         <!-- 하단 선 -->
-        <Rectangle Grid.Row="3" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
+        <Rectangle Grid.Row="4" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
     </Grid>
 </UserControl>

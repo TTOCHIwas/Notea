@@ -68,18 +68,23 @@ namespace Notea.Modules.Subject.ViewModels
             InitializeIdleTimer();
             int currentDisplayOrder = 1;
 
+            Debug.WriteLine($"[LOAD] NoteEditorViewModel 생성 시작. 카테고리 수: {loadedNotes?.Count ?? 0}");
+
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
                 // 재귀적으로 카테고리와 라인 추가
                 foreach (var category in loadedNotes)
                 {
+                    Debug.WriteLine($"[LOAD] 카테고리 처리: '{category.Title}' (ID: {category.CategoryId})");
                     currentDisplayOrder = AddCategoryWithHierarchy(category, currentDisplayOrder);
                 }
 
                 _nextDisplayOrder = currentDisplayOrder;
+                Debug.WriteLine($"[LOAD] 로드 완료. 총 라인 수: {Lines.Count}");
             }
             else
             {
+                Debug.WriteLine("[LOAD] 로드된 데이터 없음. 빈 라인 추가.");
                 // 빈 라인 추가
                 var emptyLine = new MarkdownLineViewModel
                 {
@@ -104,6 +109,8 @@ namespace Notea.Modules.Subject.ViewModels
         {
             CurrentCategoryId = category.CategoryId;
 
+            Debug.WriteLine($"[LOAD] 카테고리 '{category.Title}' 추가 중...");
+
             // 카테고리 제목 추가
             var categoryLine = new MarkdownLineViewModel
             {
@@ -120,6 +127,8 @@ namespace Notea.Modules.Subject.ViewModels
             categoryLine.SetOriginalContent(category.Title);
             Lines.Add(categoryLine);
             RegisterLineEvents(categoryLine);
+
+            Debug.WriteLine($"[LOAD] 카테고리 제목 라인 추가됨. 텍스트 수: {category.Lines.Count}");
 
             // 카테고리의 라인들 추가
             foreach (var line in category.Lines)
@@ -138,11 +147,13 @@ namespace Notea.Modules.Subject.ViewModels
                 contentLine.SetOriginalContent(line.Content);
                 Lines.Add(contentLine);
                 RegisterLineEvents(contentLine);
+
+                Debug.WriteLine($"[LOAD] 텍스트 라인 추가: '{line.Content.Substring(0, Math.Min(30, line.Content.Length))}'...");
             }
 
-            // 하위 카테고리들 재귀적으로 추가
             foreach (var subCategory in category.SubCategories)
             {
+                Debug.WriteLine($"[LOAD] 하위 카테고리 처리: '{subCategory.Title}'");
                 displayOrder = AddCategoryWithHierarchy(subCategory, displayOrder);
             }
 

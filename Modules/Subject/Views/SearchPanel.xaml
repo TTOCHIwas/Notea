@@ -8,18 +8,18 @@
         <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
     </UserControl.Resources>
 
-    <Border Background="#F0F0F0" 
-            BorderBrush="#CCCCCC" 
+    <Border Background="Transparent" 
+            BorderBrush="Transparent" 
             BorderThickness="0,0,0,1"
             Visibility="{Binding IsSearchPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
         <Grid Margin="10,5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="5*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
@@ -48,14 +48,12 @@
             <Button Grid.Column="3" 
                     Content="◀" 
                     Command="{Binding PreviousResultCommand}"
-                    IsEnabled="{Binding HasResults}"
                     Margin="5,0"
                     Padding="5,2"/>
 
             <Button Grid.Column="4" 
                     Content="▶" 
                     Command="{Binding NextResultCommand}"
-                    IsEnabled="{Binding HasResults}"
                     Margin="0,0,10,0"
                     Padding="5,2"/>
 

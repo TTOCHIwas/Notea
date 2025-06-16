@@ -278,6 +278,71 @@ namespace Notea.Helpers
             }
         }
 
+        public static void DebugPrintAllData(int subjectId)
+        {
+            try
+            {
+                Debug.WriteLine("=== 데이터베이스 전체 내용 ===");
+
+                // 카테고리 출력
+                string categoryQuery = $@"
+            SELECT categoryId, title, displayOrder, level, parentCategoryId
+            FROM category 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
+
+                var categoryResult = ExecuteSelect(categoryQuery);
+                Debug.WriteLine($"[카테고리] 총 {categoryResult.Rows.Count}개");
+                foreach (DataRow row in categoryResult.Rows)
+                {
+                    Debug.WriteLine($"  ID: {row["categoryId"]}, " +
+                                  $"Title: '{row["title"]}', " +
+                                  $"Order: {row["displayOrder"]}, " +
+                                  $"Level: {row["level"]}, " +
+                                  $"ParentId: {row["parentCategoryId"]}");
+                }
+
+                // 텍스트 내용 출력
+                string textQuery = $@"
+            SELECT textId, content, categoryId, displayOrder
+            FROM noteContent 
+            WHERE subJectId = {subjectId}
+            ORDER BY displayOrder";
+
+                var textResult = ExecuteSelect(textQuery);
+                Debug.WriteLine($"\n[텍스트] 총 {textResult.Rows.Count}개");
+                foreach (DataRow row in textResult.Rows)
+                {
+                    Debug.WriteLine($"  ID: {row["textId"]}, " +
+                                  $"CategoryId: {row["categoryId"]}, " +
+                                  $"Order: {row["displayOrder"]}, " +
+                                  $"Content: '{row["content"]?.ToString().Substring(0, Math.Min(50, row["content"]?.ToString().Length ?? 0))}'...");
+                }
+
+                // 카테고리별 텍스트 개수
+                string countQuery = $@"
+            SELECT c.categoryId, c.title, COUNT(n.textId) as textCount
+            FROM category c
+            LEFT JOIN noteContent n ON c.categoryId = n.categoryId
+            WHERE c.subJectId = {subjectId}
+            GROUP BY c.categoryId, c.title
+            ORDER BY c.displayOrder";
+
+                var countResult = ExecuteSelect(countQuery);
+                Debug.WriteLine($"\n[카테고리별 텍스트 개수]");
+                foreach (DataRow row in countResult.Rows)
+                {
+                    Debug.WriteLine($"  카테고리 '{row["title"]}' (ID: {row["categoryId"]}): {row["textCount"]}개");
+                }
+
+                Debug.WriteLine("========================");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] DebugPrintAllData: {ex.Message}");
+            }
+        }
+
         // DB 경로 확인용
         public static string GetDatabasePath() => dbPath;
     }

@@ -86,6 +86,7 @@ namespace Notea.Modules.Subject.Views
             return null;
         }
 
+
         private void TextBlock_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (sender is not FrameworkElement fe || fe.DataContext is not MarkdownLineViewModel vm)
@@ -550,21 +551,17 @@ namespace Notea.Modules.Subject.Views
 
         private void OpenSearch()
         {
-            // NotePageView의 ViewModel 찾기
-            var parent = VisualTreeHelper.GetParent(this);
-            while (parent != null && !(parent is NotePageView))
-            {
-                parent = VisualTreeHelper.GetParent(parent);
-            }
+            // NotePageViewModel 찾기 - 부모 컨트롤의 DataContext에서
+            var notePageViewModel = FindParentDataContext<NotePageViewModel>(this);
 
-            if (parent is NotePageView pageView && pageView.DataContext is NotePageViewModel pageViewModel)
+            if (notePageViewModel?.SearchViewModel != null)
             {
-                //pageViewModel.SearchViewModel.IsSearchPanelVisible = true;
+                notePageViewModel.SearchViewModel.IsSearchPanelVisible = true;
 
                 // SearchBox에 포커스 설정
                 Dispatcher.InvokeAsync(() =>
                 {
-                    // SearchPanel 찾기
+                    // MainWindow에서 SearchPanel 찾기
                     var window = Window.GetWindow(this);
                     if (window != null)
                     {
@@ -573,10 +570,44 @@ namespace Notea.Modules.Subject.Views
                         {
                             var searchBox = FindVisualChild<TextBox>(searchPanel, "SearchBox");
                             searchBox?.Focus();
+                            searchBox?.SelectAll();
                         }
                     }
                 }, DispatcherPriority.Input);
             }
+            else
+            {
+                Debug.WriteLine("[ERROR] SearchViewModel을 찾을 수 없습니다.");
+            }
+        }
+
+        public void HighlightSearchResult(int lineIndex, int startIndex, int length)
+        {
+            if (lineIndex < 0 || lineIndex >= ItemsControlContainer.Items.Count)
+                return;
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                // 해당 라인의 컨테이너 가져오기
+                var container = ItemsControlContainer.ItemContainerGenerator
+                    .ContainerFromIndex(lineIndex) as FrameworkElement;
+
+                if (container != null)
+                {
+                    var textBox = FindVisualChild<TextBox>(container);
+                    if (textBox != null)
+                    {
+                        // 텍스트박스에 포커스
+                        textBox.Focus();
+
+                        // 검색 결과 선택
+                        textBox.Select(startIndex, length);
+
+                        // 뷰포트로 스크롤
+                        container.BringIntoView();
+                    }
+                }
+            }, DispatcherPriority.Input);
         }
 
 
