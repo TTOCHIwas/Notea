@@ -13,16 +13,17 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
+using System.Windows.Controls;
+using Notea.Modules.Monthly.ViewModels;
+
 namespace Notea.Modules.Monthly.Views
 {
-    /// <summary>
-    /// YearMonthListView.xaml에 대한 상호 작용 논리
-    /// </summary>
     public partial class YearMonthListView : Page
     {
         public YearMonthListView()
         {
             InitializeComponent();
+            DataContext = new YearMonthListViewModel();
         }
     }
 }

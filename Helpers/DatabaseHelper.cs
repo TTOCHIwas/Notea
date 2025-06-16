@@ -1,13 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Data.SQLite;
 using System.Data;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.IO;
+using System.Data.SQLite;
 using System.Diagnostics;
-
+using System.IO;
 namespace Notea.Helpers
 {
     public static class DatabaseHelper
@@ -340,6 +335,71 @@ namespace Notea.Helpers
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ERROR] DebugPrintAllData: {ex.Message}");
+            }
+        }
+
+        public static void UpdateSchemaForImageSupport()
+        {
+            try
+            {
+                // noteContent 테이블에 imageUrl 컬럼 추가
+                string checkImageColumn = @"
+            SELECT COUNT(*) as count 
+            FROM pragma_table_info('noteContent') 
+            WHERE name='imageUrl'";
+
+                var result = ExecuteSelect(checkImageColumn);
+                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
+                {
+                    string addImageColumn = @"
+                ALTER TABLE noteContent ADD COLUMN imageUrl VARCHAR DEFAULT NULL";
+                    ExecuteNonQuery(addImageColumn);
+                    Debug.WriteLine("[DB] noteContent.imageUrl 컬럼 추가됨");
+                }
+
+                // noteContent 테이블에 contentType 컬럼 추가 (text/image 구분)
+                string checkTypeColumn = @"
+            SELECT COUNT(*) as count 
+            FROM pragma_table_info('noteContent') 
+            WHERE name='contentType'";
+
+                result = ExecuteSelect(checkTypeColumn);
+                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
+                {
+                    string addTypeColumn = @"
+                ALTER TABLE noteContent ADD COLUMN contentType VARCHAR DEFAULT 'text'";
+                    ExecuteNonQuery(addTypeColumn);
+                    Debug.WriteLine("[DB] noteContent.contentType 컬럼 추가됨");
+                }
+
+                Debug.WriteLine("[DB] 이미지 지원 스키마 업데이트 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] 이미지 지원 스키마 업데이트 실패: {ex.Message}");
+            }
+        }
+
+        public static void UpdateSchemaForMonthlyComment()
+        {
+            try
+            {
+                // monthlyComment 테이블 생성
+                string createTableQuery = @"
+            CREATE TABLE IF NOT EXISTS monthlyComment
+            (
+                commentId INTEGER PRIMARY KEY AUTOINCREMENT,
+                monthDate DATETIME NOT NULL,
+                comment VARCHAR NULL,
+                UNIQUE(monthDate)
+            )";
+
+                ExecuteNonQuery(createTableQuery);
+                Debug.WriteLine("[DB] monthlyComment 테이블 생성/확인 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] monthlyComment 스키마 업데이트 실패: {ex.Message}");
             }
         }
 

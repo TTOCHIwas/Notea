@@ -12,13 +12,11 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Windows.Controls;
 
 namespace Notea.Modules.Monthly.Views
 {
-    /// <summary>
-    /// YearMonthView.xaml에 대한 상호 작용 논리
-    /// </summary>
-    public partial class YearMonthView : Page
+    public partial class YearMonthView : UserControl
     {
         public YearMonthView()
         {

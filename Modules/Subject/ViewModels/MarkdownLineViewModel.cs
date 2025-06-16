@@ -1,5 +1,4 @@
-﻿using Notea.Modules.Subject.Models;
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -8,7 +7,8 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
-using System.Windows.Threading;
+using Notea.Modules.Subject.Models;
+
 
 namespace Notea.Modules.Subject.ViewModels
 {
@@ -33,7 +33,7 @@ namespace Notea.Modules.Subject.ViewModels
         public bool IsHeadingLine { get; set; } = false;
 
         public string OriginalContent { get; private set; }
-        public bool HasChanges => Content != OriginalContent;
+        public bool HasChanges => Content != OriginalContent || ImageUrl != OriginalImageUrl;
 
         public event EventHandler<CategoryCreatedEventArgs> CategoryCreated;
         public event EventHandler<FindPreviousCategoryEventArgs> RequestFindPreviousCategory;
@@ -48,15 +48,17 @@ namespace Notea.Modules.Subject.ViewModels
         }
 
         // 데이터베이스에서 로드한 후 호출
-        public void SetOriginalContent(string content)
+        public void SetOriginalContent(string content, string imageUrl = null)
         {
             OriginalContent = content;
+            OriginalImageUrl = imageUrl;
         }
 
         // 저장 후 호출하여 변경사항 리셋
         public void ResetChanges()
         {
             OriginalContent = Content;
+            OriginalImageUrl = ImageUrl;
         }
 
         private bool _isList = false;
@@ -68,6 +70,20 @@ namespace Notea.Modules.Subject.ViewModels
                 if (_isList != value)
                 {
                     _isList = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        private bool _isDragging;
+        public bool IsDragging
+        {
+            get => _isDragging;
+            set
+            {
+                if (_isDragging != value)
+                {
+                    _isDragging = value;
                     OnPropertyChanged();
                 }
             }
@@ -197,6 +213,42 @@ namespace Notea.Modules.Subject.ViewModels
                 }
             }
         }
+
+        private string _imageUrl;
+        public string ImageUrl
+        {
+            get => _imageUrl;
+            set
+            {
+                if (_imageUrl != value)
+                {
+                    _imageUrl = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsImage));
+                    OnPropertyChanged(nameof(HasChanges));
+                }
+            }
+        }
+
+        private string _contentType = "text";
+        public string ContentType
+        {
+            get => _contentType;
+            set
+            {
+                if (_contentType != value)
+                {
+                    _contentType = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsImage));
+                }
+            }
+        }
+
+        public bool IsImage => ContentType == "image";
+
+        // 원본 이미지 URL (변경 추적용)
+        public string OriginalImageUrl { get; private set; }
 
         public bool IsOrderedList => Regex.IsMatch(Content, @"^\d+\.\s+");
 
@@ -781,7 +833,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        protected void OnPropertyChanged([CallerMemberName] string name = "")
+        public void OnPropertyChanged([CallerMemberName] string name = "")
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }

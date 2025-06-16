@@ -1,5 +1,4 @@
-﻿using Notea.Modules.Subject.ViewModels;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -7,7 +6,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.IO;
+using Notea.Modules.Subject.ViewModels;
 
 namespace Notea.Modules.Subject.Views
 {
@@ -121,6 +123,15 @@ namespace Notea.Modules.Subject.Views
             var vm = this.DataContext as NoteEditorViewModel;
             if (vm == null) return;
 
+            if (e.Key == Key.V && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                if (Clipboard.ContainsImage())
+                {
+                    e.Handled = true;
+                    HandleImagePaste(vm, lineVM);
+                    return;
+                }
+            }
             if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
                 e.Handled = true;
@@ -192,6 +203,69 @@ namespace Notea.Modules.Subject.Views
             else if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
             {
                 e.Handled = HandleArrowNavigation(vm, textBox, lineVM, e.Key);
+            }
+        }
+
+        private void HandleImagePaste(NoteEditorViewModel vm, MarkdownLineViewModel currentLine)
+        {
+            try
+            {
+                if (!Clipboard.ContainsImage())
+                    return;
+
+                // 클립보드에서 이미지 가져오기
+                var image = Clipboard.GetImage();
+                if (image == null)
+                    return;
+
+                // 이미지 저장
+                string imageFileName = $"img_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid():N}.png";
+                string imagePath = SaveImage(image, imageFileName);
+
+                if (!string.IsNullOrEmpty(imagePath))
+                {
+                    // 현재 라인 다음에 이미지 라인 추가
+                    int currentIndex = vm.Lines.IndexOf(currentLine);
+                    vm.InsertImageLineAt(currentIndex + 1, imagePath);
+
+                    Debug.WriteLine($"[IMAGE] 이미지 붙여넣기 완료: {imagePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] 이미지 붙여넣기 실패: {ex.Message}");
+                MessageBox.Show("이미지 붙여넣기에 실패했습니다.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private string SaveImage(BitmapSource image, string fileName)
+        {
+            try
+            {
+                string imageFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "images");
+                if (!Directory.Exists(imageFolder))
+                {
+                    Directory.CreateDirectory(imageFolder);
+                }
+
+                string fullPath = Path.Combine(imageFolder, fileName);
+
+                // PNG 인코더 사용
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+
+                using (var fileStream = new FileStream(fullPath, FileMode.Create))
+                {
+                    encoder.Save(fileStream);
+                }
+
+                // 상대 경로 반환
+                return $"data/images/{fileName}";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] 이미지 저장 실패: {ex.Message}");
+                return null;
             }
         }
 
@@ -611,6 +685,163 @@ namespace Notea.Modules.Subject.Views
         }
 
 
+        private Point _startPoint;
+        private bool _isDragging = false;
+        private MarkdownLineViewModel _draggedItem;
+
+        private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _startPoint = e.GetPosition(null);
+            _draggedItem = ((FrameworkElement)sender).DataContext as MarkdownLineViewModel;
+        }
+
+        private void Grid_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton == MouseButtonState.Pressed && !_isDragging && _draggedItem != null)
+            {
+                Point position = e.GetPosition(null);
+
+                if (Math.Abs(position.X - _startPoint.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                    Math.Abs(position.Y - _startPoint.Y) > SystemParameters.MinimumVerticalDragDistance)
+                {
+                    _isDragging = true;
+                    _draggedItem.IsDragging = true;
+
+                    // 드래그 데이터 생성
+                    DataObject data = new DataObject("MarkdownLine", _draggedItem);
+
+                    // 드래그 시작
+                    DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Move);
+
+                    _isDragging = false;
+                    _draggedItem.IsDragging = false;
+                }
+            }
+        }
+
+        private void Grid_DragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent("MarkdownLine"))
+            {
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            e.Effects = DragDropEffects.Move;
+
+            // 드롭 인디케이터 표시
+            var grid = sender as Grid;
+            if (grid != null)
+            {
+                var dropIndicator = FindVisualChild<Rectangle>(grid, "DropIndicator");
+                if (dropIndicator != null)
+                {
+                    Point position = e.GetPosition(grid);
+                    if (position.Y < grid.ActualHeight / 2)
+                    {
+                        dropIndicator.VerticalAlignment = VerticalAlignment.Top;
+                    }
+                    else
+                    {
+                        dropIndicator.VerticalAlignment = VerticalAlignment.Bottom;
+                    }
+                    dropIndicator.Visibility = Visibility.Visible;
+                }
+            }
+        }
+
+        private void Grid_Drop(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent("MarkdownLine"))
+                return;
+
+            var draggedLine = e.Data.GetData("MarkdownLine") as MarkdownLineViewModel;
+            var targetLine = ((FrameworkElement)sender).DataContext as MarkdownLineViewModel;
+
+            if (draggedLine == null || targetLine == null || draggedLine == targetLine)
+                return;
+
+            var vm = DataContext as NoteEditorViewModel;
+            if (vm == null)
+                return;
+
+            // 드롭 위치 계산
+            var grid = sender as Grid;
+            Point position = e.GetPosition(grid);
+            bool insertBefore = position.Y < grid.ActualHeight / 2;
+
+            // 드롭 인디케이터 숨기기
+            var dropIndicator = FindVisualChild<Rectangle>(grid, "DropIndicator");
+            if (dropIndicator != null)
+            {
+                dropIndicator.Visibility = Visibility.Collapsed;
+            }
+
+            // 순서 변경 수행
+            vm.ReorderLine(draggedLine, targetLine, insertBefore);
+        }
+
+        // Grid_DragLeave 이벤트 핸들러 추가
+        private void Grid_DragLeave(object sender, DragEventArgs e)
+        {
+            var grid = sender as Grid;
+            if (grid != null)
+            {
+                var dropIndicator = FindVisualChild<Rectangle>(grid, "DropIndicator");
+                if (dropIndicator != null)
+                {
+                    dropIndicator.Visibility = Visibility.Collapsed;
+                }
+            }
+        }
+
+        // 이미지 삭제 처리
+        private void DeleteImage_Click(object sender, RoutedEventArgs e)
+        {
+            var button = sender as Button;
+            var line = button?.DataContext as MarkdownLineViewModel;
+
+            if (line != null && line.IsImage)
+            {
+                var vm = DataContext as NoteEditorViewModel;
+                if (vm != null)
+                {
+                    var result = MessageBox.Show("이미지를 삭제하시겠습니까?", "확인",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        // 이미지 파일 삭제
+                        DeleteImageFile(line.ImageUrl);
+
+                        // 라인 삭제
+                        vm.RemoveLine(line);
+                    }
+                }
+            }
+        }
+
+        private void DeleteImageFile(string imageUrl)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(imageUrl))
+                {
+                    string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, imageUrl);
+                    if (File.Exists(fullPath))
+                    {
+                        File.Delete(fullPath);
+                        Debug.WriteLine($"[IMAGE] 이미지 파일 삭제됨: {fullPath}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] 이미지 파일 삭제 실패: {ex.Message}");
+            }
+        }
+
+
         private T FindVisualChild<T>(DependencyObject parent, string name = null) where T : DependencyObject
         {
             if (parent == null) return null;
@@ -620,21 +851,14 @@ namespace Notea.Modules.Subject.Views
                 var child = VisualTreeHelper.GetChild(parent, i);
 
                 if (child is T target)
-                {
-                    if (name == null)
-                        return target;
+                    return target;
 
-                    if (child is FrameworkElement fe && fe.Name == name)
-                        return target;
-                }
-
-                var result = FindVisualChild<T>(child, name);
+                var result = FindVisualChild<T>(child);
                 if (result != null)
                     return result;
             }
             return null;
         }
-
 
     }
 }

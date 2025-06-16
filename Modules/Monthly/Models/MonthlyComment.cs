@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Notea.Modules.Monthly.Models
 {
-    class MonthlyComment : IMonthlyComment
+    public class MonthlyComment : IMonthlyComment
     {
         public string? Comment { get; set; }
         public DateTime? MonthDate { get; set; }

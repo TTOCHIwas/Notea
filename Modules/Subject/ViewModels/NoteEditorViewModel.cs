@@ -109,8 +109,6 @@ namespace Notea.Modules.Subject.ViewModels
         {
             CurrentCategoryId = category.CategoryId;
 
-            Debug.WriteLine($"[LOAD] 카테고리 '{category.Title}' 추가 중...");
-
             // 카테고리 제목 추가
             var categoryLine = new MarkdownLineViewModel
             {
@@ -128,14 +126,14 @@ namespace Notea.Modules.Subject.ViewModels
             Lines.Add(categoryLine);
             RegisterLineEvents(categoryLine);
 
-            Debug.WriteLine($"[LOAD] 카테고리 제목 라인 추가됨. 텍스트 수: {category.Lines.Count}");
-
-            // 카테고리의 라인들 추가
+            // 카테고리의 라인들 추가 (이미지 포함)
             foreach (var line in category.Lines)
             {
                 var contentLine = new MarkdownLineViewModel
                 {
                     Content = line.Content,
+                    ContentType = line.ContentType ?? "text",
+                    ImageUrl = line.ImageUrl,
                     IsEditing = false,
                     SubjectId = this.SubjectId,
                     CategoryId = category.CategoryId,
@@ -144,16 +142,16 @@ namespace Notea.Modules.Subject.ViewModels
                     DisplayOrder = displayOrder++
                 };
 
-                contentLine.SetOriginalContent(line.Content);
+                contentLine.SetOriginalContent(line.Content, line.ImageUrl);
                 Lines.Add(contentLine);
                 RegisterLineEvents(contentLine);
 
-                Debug.WriteLine($"[LOAD] 텍스트 라인 추가: '{line.Content.Substring(0, Math.Min(30, line.Content.Length))}'...");
+                Debug.WriteLine($"[LOAD] {line.ContentType} 라인 추가: {(line.ContentType == "image" ? line.ImageUrl : line.Content.Substring(0, Math.Min(30, line.Content.Length)))}");
             }
 
+            // 하위 카테고리들 재귀적으로 추가
             foreach (var subCategory in category.SubCategories)
             {
-                Debug.WriteLine($"[LOAD] 하위 카테고리 처리: '{subCategory.Title}'");
                 displayOrder = AddCategoryWithHierarchy(subCategory, displayOrder);
             }
 
@@ -673,71 +671,60 @@ namespace Notea.Modules.Subject.ViewModels
                 {
                     foreach (var line in changedLines)
                     {
-                        Debug.WriteLine($"[SAVE] 라인 처리 중 - Content: {line.Content}, IsHeading: {line.IsHeadingLine}, CategoryId: {line.CategoryId}, TextId: {line.TextId}");
+                        Debug.WriteLine($"[SAVE] 라인 처리 중 - Content: {line.Content}, IsHeading: {line.IsHeadingLine}, IsImage: {line.IsImage}, CategoryId: {line.CategoryId}, TextId: {line.TextId}");
 
                         if (line.IsHeadingLine)
                         {
-                            // 부모 카테고리 찾기
+                            // 헤딩 처리 (기존과 동일)
                             int? parentId = FindParentForHeading(line);
-                            Debug.WriteLine($"[SAVE] 헤딩 부모 카테고리: {parentId}");
 
                             if (line.CategoryId <= 0)
                             {
-                                // 새 카테고리 생성 - transaction 전달
                                 int newCategoryId = NoteRepository.InsertCategory(
                                     line.Content,
                                     line.SubjectId,
                                     line.DisplayOrder,
                                     line.Level,
                                     parentId,
-                                    transaction); // 트랜잭션 전달
+                                    transaction);
                                 line.CategoryId = newCategoryId;
-                                Debug.WriteLine($"[SAVE] 새 카테고리 생성됨: {newCategoryId}");
                             }
                             else
                             {
-                                // 기존 카테고리 업데이트 - transaction 전달
                                 NoteRepository.UpdateCategory(line.CategoryId, line.Content, transaction);
-                                Debug.WriteLine($"[SAVE] 카테고리 업데이트됨: {line.CategoryId}");
                             }
                         }
                         else
                         {
-                            // 일반 텍스트
-                            Debug.WriteLine($"[SAVE] 일반 텍스트 저장 - CategoryId: {line.CategoryId}");
-
+                            // 일반 텍스트 또는 이미지
                             if (line.CategoryId <= 0)
                             {
-                                Debug.WriteLine($"[SAVE ERROR] CategoryId가 유효하지 않음: {line.CategoryId}");
                                 line.CategoryId = GetCurrentCategoryIdForNewLine();
-                                Debug.WriteLine($"[SAVE] CategoryId 재설정: {line.CategoryId}");
                             }
 
                             if (line.TextId <= 0)
                             {
-                                // 새 텍스트 생성 - transaction 전달
+                                // 새 라인 생성 (이미지 포함)
                                 int newTextId = NoteRepository.InsertNewLine(
                                     line.Content,
                                     line.SubjectId,
                                     line.CategoryId,
                                     line.DisplayOrder,
-                                    transaction); // 트랜잭션 전달
+                                    line.ContentType,
+                                    line.ImageUrl,
+                                    transaction);
 
                                 if (newTextId > 0)
                                 {
                                     line.TextId = newTextId;
-                                    Debug.WriteLine($"[SAVE] 새 텍스트 생성됨: {newTextId}");
-                                }
-                                else
-                                {
-                                    Debug.WriteLine($"[SAVE ERROR] 텍스트 삽입 실패");
+                                    Debug.WriteLine($"[SAVE] 새 {line.ContentType} 생성됨: {newTextId}");
                                 }
                             }
                             else
                             {
-                                // 기존 텍스트 업데이트
+                                // 기존 라인 업데이트
                                 NoteRepository.UpdateLine(line);
-                                Debug.WriteLine($"[SAVE] 텍스트 업데이트됨: {line.TextId}");
+                                Debug.WriteLine($"[SAVE] {line.ContentType} 업데이트됨: {line.TextId}");
                             }
                         }
 
@@ -808,6 +795,117 @@ namespace Notea.Modules.Subject.ViewModels
                                $"HasChanges: {line.HasChanges}");
             }
             Debug.WriteLine("===================");
+        }
+
+        public void InsertImageLineAt(int index, string imagePath)
+        {
+            if (index < 0 || index > Lines.Count)
+                index = Lines.Count;
+
+            int categoryId = GetCurrentCategoryIdForNewLine();
+            int displayOrder = GetDisplayOrderForIndex(index);
+
+            var imageLine = new MarkdownLineViewModel
+            {
+                IsEditing = false,
+                Content = $"![이미지]({imagePath})", // 마크다운 이미지 문법
+                ImageUrl = imagePath,
+                ContentType = "image",
+                SubjectId = this.SubjectId,
+                CategoryId = categoryId,
+                Index = index,
+                DisplayOrder = displayOrder,
+                TextId = 0
+            };
+
+            Lines.Insert(index, imageLine);
+            RegisterLineEvents(imageLine);
+
+            // 이후 라인들의 Index와 DisplayOrder 업데이트
+            UpdateLineIndicesFrom(index + 1);
+
+            Debug.WriteLine($"[IMAGE] 이미지 라인 추가됨. Index: {index}, Path: {imagePath}");
+        }
+
+        private int GetDisplayOrderForIndex(int index)
+        {
+            if (index == 0)
+                return 1;
+
+            if (index >= Lines.Count)
+                return Lines.Count > 0 ? Lines.Last().DisplayOrder + 1 : 1;
+
+            // 이전 라인과 다음 라인 사이의 값
+            int prevOrder = Lines[index - 1].DisplayOrder;
+            int nextOrder = Lines[index].DisplayOrder;
+
+            if (nextOrder - prevOrder > 1)
+                return prevOrder + 1;
+
+            // 공간이 없으면 이후 모든 라인들의 DisplayOrder를 밀어냄
+            ShiftDisplayOrdersFrom(nextOrder);
+            return nextOrder;
+        }
+
+        private void UpdateLineIndicesFrom(int startIndex)
+        {
+            for (int i = startIndex; i < Lines.Count; i++)
+            {
+                Lines[i].Index = i;
+            }
+        }
+
+
+        public void ReorderLine(MarkdownLineViewModel draggedLine, MarkdownLineViewModel targetLine, bool insertBefore)
+        {
+            if (draggedLine == null || targetLine == null || draggedLine == targetLine)
+                return;
+
+            int draggedIndex = Lines.IndexOf(draggedLine);
+            int targetIndex = Lines.IndexOf(targetLine);
+
+            if (draggedIndex < 0 || targetIndex < 0)
+                return;
+
+            // 라인 제거
+            Lines.RemoveAt(draggedIndex);
+
+            // 새 위치 계산
+            int newIndex = targetIndex;
+            if (draggedIndex < targetIndex)
+            {
+                newIndex = insertBefore ? targetIndex - 1 : targetIndex;
+            }
+            else
+            {
+                newIndex = insertBefore ? targetIndex : targetIndex + 1;
+            }
+
+            // 라인 삽입
+            Lines.Insert(newIndex, draggedLine);
+
+            // 인덱스와 DisplayOrder 재정렬
+            ReorderDisplayOrders();
+
+            // 변경사항을 트리거하기 위해 DisplayOrder 업데이트
+            draggedLine.OnPropertyChanged(nameof(draggedLine.DisplayOrder));
+
+            Debug.WriteLine($"[DRAG] 라인 이동: {draggedIndex} -> {newIndex}");
+        }
+
+        private void ReorderDisplayOrders()
+        {
+            for (int i = 0; i < Lines.Count; i++)
+            {
+                Lines[i].Index = i;
+                Lines[i].DisplayOrder = i + 1;
+            }
+
+            // DisplayOrder 변경을 데이터베이스에 반영하기 위해 모든 라인을 변경됨으로 표시
+            foreach (var line in Lines)
+            {
+                line.OnPropertyChanged(nameof(line.DisplayOrder));
+            }
         }
 
 

@@ -57,63 +57,97 @@
 
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid MinHeight="24">
+                        <Grid MinHeight="24" AllowDrop="True" 
+                              PreviewMouseMove="Grid_PreviewMouseMove"
+                              PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown"
+                              Drop="Grid_Drop"
+                              DragOver="Grid_DragOver"
+                              DragLeave="Grid_DragLeave">
+
+                            <Rectangle Height="2" Fill="#1e1E1E" VerticalAlignment="Top" 
+                                        Visibility="Collapsed" x:Name="DropIndicator"/>
+                            <Grid Visibility="{Binding IsImage, Converter={StaticResource InverseBoolToVisibilityConverter}}">
                             <!-- 편집 모드 -->
-                            <Grid Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <!-- Placeholder TextBlock -->
-                                <TextBlock Text="{Binding Placeholder}"
+                                <Grid Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <!-- Placeholder TextBlock -->
+                                    <TextBlock Text="{Binding Placeholder}"
+                                             FontSize="{Binding FontSize}"
+                                             FontWeight="{Binding FontWeight}"
+                                             Margin="{Binding Margin}"
+                                             Visibility="{Binding ShowPlaceholder, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource PlaceholderTextStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HeadingLevel}" Value="1">
+                                                        <Setter Property="Margin" Value="25,4,4,4" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding HeadingLevel}" Value="2">
+                                                        <Setter Property="Margin" Value="35,4,4,4" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding HeadingLevel}" Value="3">
+                                                        <Setter Property="Margin" Value="45,4,4,4" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <!-- TextBox -->
+                                    <TextBox x:Name="InlineEditor"
+                                         Text="{Binding Content, UpdateSourceTrigger=PropertyChanged}"
                                          FontSize="{Binding FontSize}"
                                          FontWeight="{Binding FontWeight}"
                                          Margin="{Binding Margin}"
-                                         Visibility="{Binding ShowPlaceholder, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource PlaceholderTextStyle}">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="1">
-                                                    <Setter Property="Margin" Value="25,4,4,4" />
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="2">
-                                                    <Setter Property="Margin" Value="35,4,4,4" />
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding HeadingLevel}" Value="3">
-                                                    <Setter Property="Margin" Value="45,4,4,4" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-
-                                <!-- TextBox -->
-                                <TextBox x:Name="InlineEditor"
-                                     Text="{Binding Content, UpdateSourceTrigger=PropertyChanged}"
-                                     FontSize="{Binding FontSize}"
-                                     FontWeight="{Binding FontWeight}"
-                                     Margin="{Binding Margin}"
-                                     GotFocus="TextBox_GotFocus"
-                                     LostFocus="TextBox_LostFocus"
-                                     BorderThickness="0"
-                                     Background="Transparent"
-                                     PreviewKeyDown="TextBox_PreviewKeyDown"
-                                     PreviewTextInput="TextBox_PreviewTextInput"
-                                     TextChanged="TextBox_TextChanged"/>
-                            </Grid>
+                                         GotFocus="TextBox_GotFocus"
+                                         LostFocus="TextBox_LostFocus"
+                                         BorderThickness="0"
+                                         Background="Transparent"
+                                         PreviewKeyDown="TextBox_PreviewKeyDown"
+                                         PreviewTextInput="TextBox_PreviewTextInput"
+                                         TextChanged="TextBox_TextChanged"/>
+                                </Grid>
 
                             <!-- 뷰 모드 -->
-                            <Grid Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                  MinHeight="24">
-                                <!-- 빈 줄 Placeholder (뷰 모드에서는 표시하지 않음) -->
+                                <Grid Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                      MinHeight="24">
+                                    <!-- 빈 줄 Placeholder (뷰 모드에서는 표시하지 않음) -->
 
-                                <!-- MarkdownTextBlock -->
-                                <controls:MarkdownTextBlock 
-                                    FontSize="{Binding FontSize}"
-                                    FontWeight="{Binding FontWeight}"
-                                    Margin="{Binding Margin}"
-                                    Cursor="IBeam"
-                                    Background="Transparent"
-                                    MouseDown="TextBlock_MouseDown"
-                                    InlinesSource="{Binding Inlines}"
-                                    Content="{Binding Content}" />
+                                    <!-- MarkdownTextBlock -->
+                                    <controls:MarkdownTextBlock 
+                                        FontSize="{Binding FontSize}"
+                                        FontWeight="{Binding FontWeight}"
+                                        Margin="{Binding Margin}"
+                                        Cursor="IBeam"
+                                        Background="Transparent"
+                                        MouseDown="TextBlock_MouseDown"
+                                        InlinesSource="{Binding Inlines}"
+                                        Content="{Binding Content}" />
+                                </Grid>
                             </Grid>
+
+                            <!-- 이미지 콘텐츠 -->
+                            <Border Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    Margin="4" BorderBrush="#CCCCCC" BorderThickness="1">
+                                <Grid>
+                                    <Image Source="{Binding ImageUrl}" 
+                                           MaxHeight="400" 
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Left"
+                                           Margin="10"/>
+
+                                    <!-- 삭제 버튼 -->
+                                    <Button Content="✕" 
+                                            HorizontalAlignment="Right" 
+                                            VerticalAlignment="Top"
+                                            Margin="5"
+                                            Background="Red"
+                                            Foreground="White"
+                                            BorderThickness="0"
+                                            Padding="5,2"
+                                            Cursor="Hand"
+                                            Click="DeleteImage_Click"/>
+                                </Grid>
+                            </Border>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

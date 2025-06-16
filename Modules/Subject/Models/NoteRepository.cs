@@ -3,15 +3,11 @@ using Notea.Helpers;
 using Notea.Modules.Subject.ViewModels;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Data;
-using System.Data.SQLite;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-
 namespace Notea.Modules.Subject.Models
 {
     public static class NoteRepository
@@ -166,7 +162,7 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                // 먼저 모든 카테고리를 로드
+                // 카테고리 로드 (기존과 동일)
                 string categoryQuery = $@"
             SELECT categoryId, title, displayOrder, level
             FROM category 
@@ -187,9 +183,11 @@ namespace Notea.Modules.Subject.Models
                     categoryMap[category.CategoryId] = category;
                 }
 
-                // 그 다음 모든 텍스트를 로드하여 해당 카테고리에 할당
+                // 텍스트 로드 - contentType과 imageUrl 포함
                 string textQuery = $@"
-            SELECT textId, content, categoryId, displayOrder
+            SELECT textId, content, categoryId, displayOrder, 
+                   COALESCE(contentType, 'text') as contentType,
+                   imageUrl
             FROM noteContent 
             WHERE subJectId = {subjectId}
             ORDER BY displayOrder";
@@ -202,23 +200,19 @@ namespace Notea.Modules.Subject.Models
 
                     if (categoryMap.ContainsKey(categoryId))
                     {
-                        categoryMap[categoryId].Lines.Add(new NoteLine
+                        var noteLine = new NoteLine
                         {
                             Index = Convert.ToInt32(row["textId"]),
-                            Content = row["content"].ToString()
-                        });
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[WARNING] 카테고리를 찾을 수 없음. CategoryId: {categoryId}, TextId: {row["textId"]}");
+                            Content = row["content"].ToString(),
+                            ContentType = row["contentType"].ToString(),
+                            ImageUrl = row["imageUrl"] != DBNull.Value ? row["imageUrl"].ToString() : null
+                        };
+
+                        categoryMap[categoryId].Lines.Add(noteLine);
                     }
                 }
 
                 Debug.WriteLine($"[DB] LoadNotesBySubject 완료. 카테고리 수: {result.Count}");
-                foreach (var cat in result)
-                {
-                    Debug.WriteLine($"  카테고리 '{cat.Title}' - 텍스트 수: {cat.Lines.Count}");
-                }
             }
             catch (Exception ex)
             {
@@ -528,7 +522,8 @@ namespace Notea.Modules.Subject.Models
         /// <summary>
         /// 새로운 일반 텍스트 라인 삽입
         /// </summary>
-        public static int InsertNewLine(string content, int subjectId, int categoryId, int displayOrder = -1, Transaction transaction = null)
+        public static int InsertNewLine(string content, int subjectId, int categoryId, int displayOrder = -1,
+    string contentType = "text", string imageUrl = null, Transaction transaction = null)
         {
             try
             {
@@ -558,18 +553,19 @@ namespace Notea.Modules.Subject.Models
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
 
-                    // SELECT last_insert_rowid() 추가
                     cmd.CommandText = @"
-                    INSERT INTO noteContent (content, subjectId, categoryId, displayOrder)
-                    VALUES (@content, @subjectId, @categoryId, @displayOrder);
-                    SELECT last_insert_rowid();";
+                INSERT INTO noteContent (content, subjectId, categoryId, displayOrder, contentType, imageUrl)
+                VALUES (@content, @subjectId, @categoryId, @displayOrder, @contentType, @imageUrl);
+                SELECT last_insert_rowid();";
 
                     cmd.Parameters.AddWithValue("@content", content ?? "");
                     cmd.Parameters.AddWithValue("@subjectId", subjectId);
                     cmd.Parameters.AddWithValue("@categoryId", categoryId);
                     cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+                    cmd.Parameters.AddWithValue("@contentType", contentType);
+                    cmd.Parameters.AddWithValue("@imageUrl", imageUrl ?? (object)DBNull.Value);
 
-                    Debug.WriteLine($"[DB] InsertNewLine 실행 - Content: {content}, SubjectId: {subjectId}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
+                    Debug.WriteLine($"[DB] InsertNewLine 실행 - Type: {contentType}, ImageUrl: {imageUrl}");
 
                     var result = cmd.ExecuteScalar();
 
@@ -593,11 +589,6 @@ namespace Notea.Modules.Subject.Models
                     }
                 }
             }
-            catch (SqliteException ex)
-            {
-                Debug.WriteLine($"[DB ERROR] InsertNewLine 실패 - SQLite Error Code: {ex.SqliteErrorCode}, Message: {ex.Message}");
-                return 0;
-            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] InsertNewLine 실패: {ex.Message}");
@@ -620,7 +611,9 @@ namespace Notea.Modules.Subject.Models
             {
                 string query = $@"
             UPDATE noteContent 
-            SET content = '{(line.Content ?? "").Replace("'", "''")}'
+            SET content = '{(line.Content ?? "").Replace("'", "''")}',
+                contentType = '{line.ContentType}',
+                imageUrl = {(string.IsNullOrEmpty(line.ImageUrl) ? "NULL" : $"'{line.ImageUrl}'")}
             WHERE textId = {line.TextId}";
 
                 int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
@@ -631,7 +624,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}");
+                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, Type: {line.ContentType}");
                 }
             }
             catch (Exception ex)
