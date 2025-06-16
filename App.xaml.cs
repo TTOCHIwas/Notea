@@ -1,4 +1,5 @@
 ﻿// App.xaml.cs
+using Notea.Modules.Subject.ViewModels;
 using System.Windows;
 
 namespace Notea
@@ -16,6 +17,12 @@ namespace Notea
 
         protected override void OnExit(ExitEventArgs e)
         {
+            // 프로그램 종료 시 모든 변경사항 저장
+            if (MainWindow != null && MainWindow.DataContext is NoteEditorViewModel NoteEditorVm)
+            {
+                // 모든 열린 에디터의 변경사항 저장
+                NoteEditorVm.OnViewClosing();
+            }
             
             base.OnExit(e);
         }

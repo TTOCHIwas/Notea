@@ -25,7 +25,6 @@ namespace Notea.Modules.Subject.ViewModels
         private string _placeholder = "";
         private bool _isComposing = false;
         private bool _hasFocus = false;
-        // Timer 제거 - 더 이상 자동 저장하지 않음
 
         public int TextId { get; set; }
         public int CategoryId { get; set; }
@@ -33,7 +32,6 @@ namespace Notea.Modules.Subject.ViewModels
         public int Index { get; set; }
         public bool IsHeadingLine { get; set; } = false;
 
-        // 변경 추적을 위한 원본 데이터 저장
         public string OriginalContent { get; private set; }
         public bool HasChanges => Content != OriginalContent;
 
@@ -57,6 +55,33 @@ namespace Notea.Modules.Subject.ViewModels
             OriginalContent = Content;
         }
 
+        private bool _isList = false;
+        public bool IsList
+        {
+            get => _isList;
+            set
+            {
+                if (_isList != value)
+                {
+                    _isList = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        private string _listSymbol = "";
+        public string ListSymbol
+        {
+            get => _listSymbol;
+            set
+            {
+                if (_listSymbol != value)
+                {
+                    _listSymbol = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         private int _displayOrder;
         public int DisplayOrder
@@ -169,6 +194,33 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
+        public bool IsOrderedList => Regex.IsMatch(Content, @"^\d+\.\s+");
+
+        // 리스트 체크
+        private void CheckListStatus()
+        {
+            // 순서 없는 리스트
+            var unorderedMatch = Regex.Match(Content, @"^(\-|\*|\+)\s+");
+            if (unorderedMatch.Success)
+            {
+                IsList = true;
+                ListSymbol = unorderedMatch.Groups[1].Value;
+                return;
+            }
+
+            // 순서 있는 리스트
+            var orderedMatch = Regex.Match(Content, @"^(\d+)\.\s+");
+            if (orderedMatch.Success)
+            {
+                IsList = true;
+                ListSymbol = orderedMatch.Groups[1].Value + ".";
+                return;
+            }
+
+            IsList = false;
+            ListSymbol = "";
+        }
+
         public string Content
         {
             get => _content;
@@ -179,6 +231,7 @@ namespace Notea.Modules.Subject.ViewModels
                 {
                     string oldContent = _content;
                     _content = preprocessed;
+                    CheckListStatus();
 
                     // 헤딩 레벨 감지
                     int detectedLevel = NoteRepository.GetHeadingLevel(_content);
@@ -202,6 +255,30 @@ namespace Notea.Modules.Subject.ViewModels
                     OnPropertyChanged(nameof(ShowPlaceholder));
                 }
             }
+        }
+
+        /// <summary>
+        /// 다음 리스트 아이템을 위한 prefix 생성
+        /// </summary>
+        public string GetNextListPrefix()
+        {
+            if (!IsList) return "";
+
+            // 순서 없는 리스트
+            if (ListSymbol == "-" || ListSymbol == "*" || ListSymbol == "+")
+            {
+                return ListSymbol + " ";
+            }
+
+            // 순서 있는 리스트
+            var orderedMatch = Regex.Match(Content, @"^(\d+)\.\s+");
+            if (orderedMatch.Success)
+            {
+                int currentNumber = int.Parse(orderedMatch.Groups[1].Value);
+                return $"{currentNumber + 1}. ";
+            }
+
+            return "";
         }
 
         private void OnHeadingStatusChanged(bool wasHeading, bool isHeading)
@@ -683,7 +760,7 @@ namespace Notea.Modules.Subject.ViewModels
                     // 일반 텍스트 저장
                     if (TextId <= 0)
                     {
-                        int newTextId = NoteRepository.InsertNewLine(this, DisplayOrder);
+                        int newTextId = NoteRepository.InsertNewLine(Content, SubjectId, CategoryId, DisplayOrder);
                         TextId = newTextId;
                         Debug.WriteLine($"[DB] 새 텍스트 저장 완료. TextId: {newTextId}, CategoryId: {CategoryId}, DisplayOrder: {DisplayOrder}");
                     }

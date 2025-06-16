@@ -162,6 +162,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         public void UpdateActivity()
         {
+            Debug.WriteLine("마지막 액티비티 시간 바뀜");
             _lastActivityTime = DateTime.Now;
         }
 
@@ -169,6 +170,9 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if ((DateTime.Now - _lastActivityTime).TotalSeconds >= IDLE_TIMEOUT_SECONDS)
             {
+                Debug.WriteLine("이새끼가?================");
+                Debug.WriteLine($"{DateTime.Now}똑바로 해라 시발 이게 맞나 {_lastActivityTime}");
+                UpdateActivity();
                 SaveAllChanges();
             }
         }
@@ -658,15 +662,20 @@ namespace Notea.Modules.Subject.ViewModels
                 using var transaction = NoteRepository.BeginTransaction();
                 try
                 {
+                    Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 하는중 기다려라");
                     foreach (var line in changedLines)
                     {
                         if (line.IsHeadingLine)
                         {
                             // 부모 카테고리 찾기
                             int? parentId = FindParentForHeading(line);
+                            Debug.WriteLine($"[SAVE] {changedLines.Count}부모 찾아왔다임마 {parentId}");
+
 
                             if (line.CategoryId <= 0)
                             {
+                                Debug.WriteLine($"[SAVE] 이새끼 카테고리 아이디가 없다");
+
                                 // 새 카테고리 생성
                                 int newCategoryId = NoteRepository.InsertCategory(
                                     line.Content,
@@ -679,20 +688,30 @@ namespace Notea.Modules.Subject.ViewModels
                             }
                             else
                             {
+                                Debug.WriteLine($"[SAVE] 이새끼는 카테고린데 업데이트 한단다");
+
                                 // 기존 카테고리 업데이트
                                 NoteRepository.UpdateCategory(line.CategoryId, line.Content, transaction);
                             }
                         }
                         else
                         {
+                            Debug.WriteLine($"[SAVE] 이새끼는 카테고리가 아니네?");
+
                             if (line.TextId <= 0)
                             {
+                                Debug.WriteLine($"[SAVE] 이새끼는 텍스트 아이디가 읎댄다");
+
                                 // 새 텍스트 생성
-                                int newTextId = NoteRepository.InsertNewLine(line, line.DisplayOrder);
+                                int newTextId = NoteRepository.InsertNewLine(line.Content, line.SubjectId, line.CategoryId, line.DisplayOrder);
                                 line.TextId = newTextId;
+                                Debug.WriteLine($"[SAVE] 텍스트 추가 했다 아이디 이거다 {line.TextId}");
+
                             }
                             else
                             {
+                                Debug.WriteLine($"[SAVE] 이새끼는 텍스튼데 업데이트 한단다");
+
                                 // 기존 텍스트 업데이트
                                 NoteRepository.UpdateLine(line);
                             }
@@ -722,17 +741,26 @@ namespace Notea.Modules.Subject.ViewModels
         /// </summary>
         private int? FindParentForHeading(MarkdownLineViewModel heading)
         {
+
+            Debug.WriteLine($"[SAVE] 부모 찾는다 기다려라");
+
             int headingIndex = Lines.IndexOf(heading);
 
-            // 현재 헤딩 이전의 라인들에서 더 낮은 레벨의 헤딩 찾기
             for (int i = headingIndex - 1; i >= 0; i--)
             {
+                Debug.WriteLine($"[SAVE] 부모 찾는 중이다 기다려라");
+
                 var line = Lines[i];
                 if (line.IsHeadingLine && line.Level < heading.Level && line.CategoryId > 0)
                 {
+                    Debug.WriteLine($"[SAVE] 부모 찾았다 임마 기다려라");
+
                     return line.CategoryId;
                 }
             }
+
+            Debug.WriteLine($"[SAVE] 부모 몬 찾았다 어어?");
+
 
             return null;
         }

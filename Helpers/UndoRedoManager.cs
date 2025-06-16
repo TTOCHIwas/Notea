@@ -57,3 +57,7 @@ namespace Notea.Helpers
         public bool CanRedo => _redoStack.Count > 0;
     }
 }
+
+
+
+

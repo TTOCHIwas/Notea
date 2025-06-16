@@ -50,7 +50,7 @@ namespace Notea.Database
 
                     CREATE TABLE noteContent
                     (
-                        TextId     INTEGER PRIMARY KEY AUTOINCREMENT,
+                        textId     INTEGER PRIMARY KEY AUTOINCREMENT,
                         displayOrder INTEGER DEFAULT 0,
                         content    VARCHAR NULL    ,
                         categoryId INTEGER NOT NULL,
@@ -88,19 +88,19 @@ namespace Notea.Database
         {
             try
             {
-                // category 테이블에 displayOrder 컬럼 추가 (없으면)
+                // category 테이블에 level 컬럼 추가 (없으면)
                 string checkCategoryColumn = @"
                     SELECT COUNT(*) as count 
                     FROM pragma_table_info('category') 
-                    WHERE name='displayOrder'";
+                    WHERE name='level'";
 
                 var result = DatabaseHelper.ExecuteSelect(checkCategoryColumn);
                 if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
                 {
                     string addCategoryOrder = @"
-                        ALTER TABLE category ADD COLUMN displayOrder INTEGER DEFAULT 0";
+                        ALTER TABLE category ADD COLUMN level INTEGER DEFAULT 0";
                     DatabaseHelper.ExecuteNonQuery(addCategoryOrder);
-                    Debug.WriteLine("[DB] category.displayOrder 컬럼 추가됨");
+                    Debug.WriteLine("[DB] category.level 컬럼 추가됨");
                 }
 
                 // noteContent 테이블에 displayOrder 컬럼 추가 (없으면)
@@ -131,5 +131,9 @@ namespace Notea.Database
                 Debug.WriteLine($"[DB ERROR] displayOrder 스키마 업데이트 실패: {ex.Message}");
             }
         }
+
+        
     }
 }
+
+

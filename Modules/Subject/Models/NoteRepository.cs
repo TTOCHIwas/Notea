@@ -4,6 +4,7 @@ using Notea.Modules.Subject.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -53,13 +54,17 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
+                Debug.WriteLine($"[SAVE] 카테고리 넣는 중이다 임마");
+
                 if (displayOrder == -1)
                 {
                     displayOrder = GetNextDisplayOrder(subjectId);
+                    Debug.WriteLine($"[SAVE] 이새낀 새거라 자리 찾는다");
                 }
 
                 // 헤딩 레벨 자동 감지
                 int detectedLevel = GetHeadingLevel(content);
+
                 if (detectedLevel > 0)
                 {
                     level = detectedLevel;
@@ -149,7 +154,7 @@ namespace Notea.Modules.Subject.Models
         }
 
         // DB 경로는 DatabaseHelper에서 관리
-        private static string GetConnectionString() => $"Data Source={DatabaseHelper.GetDatabasePath()};";
+        private static string GetConnectionString() => $"Data Source={DatabaseHelper.GetDatabasePath()};Cache=Shared;";
 
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
         {
@@ -164,7 +169,7 @@ namespace Notea.Modules.Subject.Models
                 FROM category 
                 WHERE subjectId = {subjectId}
                 UNION ALL
-                SELECT 'text' as lineType, TextId as id, content, displayOrder, categoryId as parentCategoryId
+                SELECT 'text' as lineType, textId as id, content, displayOrder, categoryId as parentCategoryId
                 FROM noteContent 
                 WHERE subjectId = {subjectId}
                 ORDER BY displayOrder, id";
@@ -230,7 +235,7 @@ namespace Notea.Modules.Subject.Models
             SELECT 'category' as type, categoryId as id, displayOrder 
             FROM category WHERE subjectId = @subjectId
             UNION ALL
-            SELECT 'text' as type, TextId as id, displayOrder 
+            SELECT 'text' as type, textId as id, displayOrder 
             FROM noteContent WHERE subjectId = @subjectId
             ORDER BY displayOrder, id";
                 cmd.Parameters.AddWithValue("@subjectId", subjectId);
@@ -515,38 +520,69 @@ namespace Notea.Modules.Subject.Models
         /// <summary>
         /// 새로운 일반 텍스트 라인 삽입
         /// </summary>
-        public static int InsertNewLine(MarkdownLineViewModel line, int displayOrder = -1)
+        public static int InsertNewLine(string content, int subjectId, int categoryId, int displayOrder = -1, Transaction transaction = null)
         {
             try
             {
                 if (displayOrder == -1)
                 {
-                    displayOrder = GetNextDisplayOrder(line.SubjectId);
+                    displayOrder = GetNextDisplayOrder(subjectId);
                 }
 
-                using var conn = new SqliteConnection(GetConnectionString());
-                conn.Open();
+                SqliteConnection conn;
+                SqliteTransaction trans = null;
+                bool shouldDispose = false;
 
-                var cmd = conn.CreateCommand();
-                cmd.CommandText = @"
-                INSERT INTO noteContent (content, subjectId, categoryId, displayOrder)
-                VALUES (@content, @subjectId, @categoryId, @displayOrder);
-                SELECT last_insert_rowid();";
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SqliteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
 
-                cmd.Parameters.AddWithValue("@content", line.Content ?? "");
-                cmd.Parameters.AddWithValue("@subjectId", line.SubjectId);
-                cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
-                cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+                try
+                {
 
-                var result = cmd.ExecuteScalar();
-                int textId = Convert.ToInt32(result);
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = @"
+                        INSERT INTO noteContent (content, subjectId, categoryId, displayOrder)
+                        VALUES (@content, @subjectId, @categoryId, @displayOrder);
+                        ";
 
-                Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {textId}, DisplayOrder: {displayOrder}");
-                return textId;
+                    cmd.Parameters.AddWithValue("@content", content ?? "");
+                    cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+
+                    Debug.WriteLine($" 또 여기지? ㅆ발");
+
+                    var result = cmd.ExecuteScalar();
+                    Debug.WriteLine($"[SAVE] 7");
+
+                    int textId = Convert.ToInt32(result);
+                    Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {textId}, DisplayOrder: {displayOrder}");
+                    return textId;
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn.Dispose();
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] InsertNewLine 실패: {ex.Message}");
+                if (ex is SqliteException eex)
+                {
+                    Debug.WriteLine($"[DB ERROR] UpdateLine 실패: {eex.SqliteErrorCode}");
+                }
                 return 0;
             }
         }
@@ -567,7 +603,7 @@ namespace Notea.Modules.Subject.Models
                 string query = $@"
                     UPDATE noteContent 
                     SET content = '{(line.Content ?? "").Replace("'", "''")}'
-                    WHERE TextId = {line.TextId}";
+                    WHERE textId = {line.TextId}";
 
                 int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
 
@@ -599,7 +635,7 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                string query = $"DELETE FROM noteContent WHERE TextId = {textId}";
+                string query = $"DELETE FROM noteContent WHERE textId = {textId}";
                 int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
                 Debug.WriteLine($"[DB] 라인 삭제 완료. TextId: {textId}, 영향받은 행: {rowsAffected}");
             }
@@ -616,8 +652,6 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-
-
                 if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
                 {
                     // 카테고리(제목)인 경우
@@ -647,7 +681,7 @@ namespace Notea.Modules.Subject.Models
                     if (line.TextId <= 0)
                     {
                         // 새로운 라인 삽입
-                        int newTextId = InsertNewLine(line);
+                        int newTextId = InsertNewLine(line.Content, line.SubjectId, line.CategoryId);
                         line.TextId = newTextId;
                     }
                     else
@@ -710,7 +744,7 @@ namespace Notea.Modules.Subject.Models
                             cmd.CommandText = @"
                                 UPDATE noteContent 
                                 SET content = @content
-                                WHERE TextId = @textId";
+                                WHERE textId = @textId";
 
                             cmd.Parameters.AddWithValue("@content", line.Content ?? "");
                             cmd.Parameters.AddWithValue("@textId", line.TextId);

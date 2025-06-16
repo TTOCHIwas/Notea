@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -15,7 +16,6 @@ namespace Notea.Modules.Subject.Views
         public NoteEditorView()
         {
             InitializeComponent();
-            //this.DataContext = new NoteEditorViewModel();
         }
 
         private bool _isInternalFocusChange = false;
@@ -66,7 +66,24 @@ namespace Notea.Modules.Subject.Views
             {
                 // 텍스트가 실제로 있으면 조합 중이든 아니든 placeholder 숨김
                 vm.IsComposing = !string.IsNullOrEmpty(textBox.Text);
+                var noteEditorVm = FindParentDataContext<NoteEditorViewModel>(textBox);
+                noteEditorVm.UpdateActivity();
             }
+        }
+
+        public static T? FindParentDataContext<T>(DependencyObject child) where T : class
+        {
+            DependencyObject parent = VisualTreeHelper.GetParent(child);
+
+            while (parent != null)
+            {
+                if ((parent as FrameworkElement)?.DataContext is T vm)
+                    return vm;
+
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+
+            return null;
         }
 
         private void TextBlock_MouseDown(object sender, MouseButtonEventArgs e)
@@ -91,6 +108,7 @@ namespace Notea.Modules.Subject.Views
             }, DispatcherPriority.Input);
         }
 
+        // 2. NoteEditorView.xaml.cs - 단축키 및 리스트 처리 확장
         private void TextBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             var textBox = sender as TextBox;
@@ -107,32 +125,18 @@ namespace Notea.Modules.Subject.Views
             {
                 lineVM.IsComposing = false;
             }
-            // Enter 키 처리
+            // Enter 키 처리 - 리스트 자동 계속
             else if (e.Key == Key.Enter)
             {
                 e.Handled = true;
-
-                // 리스트나 제목 기호만 있으면 제거
-                if (lineVM.ShouldCleanupOnEnter())
-                {
-                    // 기호가 제거되었으므로 그냥 새 줄로 이동
-                    HandleEnter(vm);
-                }
-                else
-                {
-                    // 일반적인 엔터 처리
-                    HandleEnter(vm);
-                }
+                HandleEnterWithList(vm, lineVM);
             }
-            if (e.Key == Key.Back)
+            else if (e.Key == Key.Back)
             {
-                // 조합 중이고 텍스트가 비어있거나 비어질 예정이면
                 if (lineVM.IsComposing && textBox.Text.Length <= 1)
                 {
-                    // 조합 상태 해제하고 placeholder 표시되도록
                     lineVM.IsComposing = false;
                 }
-
                 e.Handled = HandleBackspace(vm, textBox, lineVM);
             }
             // 마크다운 단축키 처리
@@ -152,6 +156,29 @@ namespace Notea.Modules.Subject.Views
                     case Key.X when Keyboard.Modifiers.HasFlag(ModifierKeys.Shift):
                         e.Handled = HandleStrikethroughShortcut(textBox);
                         break;
+                    // 헤딩 단축키 추가
+                    case Key.D1:
+                        e.Handled = HandleHeadingShortcut(textBox, 1);
+                        break;
+                    case Key.D2:
+                        e.Handled = HandleHeadingShortcut(textBox, 2);
+                        break;
+                    case Key.D3:
+                        e.Handled = HandleHeadingShortcut(textBox, 3);
+                        break;
+                    case Key.D4:
+                        e.Handled = HandleHeadingShortcut(textBox, 4);
+                        break;
+                    case Key.D5:
+                        e.Handled = HandleHeadingShortcut(textBox, 5);
+                        break;
+                    case Key.D6:
+                        e.Handled = HandleHeadingShortcut(textBox, 6);
+                        break;
+                    // 리스트 토글
+                    case Key.L:
+                        e.Handled = HandleListToggle(textBox);
+                        break;
                 }
             }
             // 방향키 네비게이션
@@ -159,6 +186,119 @@ namespace Notea.Modules.Subject.Views
             {
                 e.Handled = HandleArrowNavigation(vm, textBox, lineVM, e.Key);
             }
+        }
+
+        /// <summary>
+        /// 헤딩 단축키 처리 (Ctrl+1~6)
+        /// </summary>
+        private bool HandleHeadingShortcut(TextBox textBox, int level)
+        {
+            string prefix = new string('#', level) + " ";
+
+            // 현재 줄이 이미 헤딩인지 확인
+            var headingMatch = Regex.Match(textBox.Text, @"^(#{1,6})\s+(.*)");
+            if (headingMatch.Success)
+            {
+                // 기존 헤딩 레벨 변경
+                string content = headingMatch.Groups[2].Value;
+                textBox.Text = prefix + content;
+                textBox.CaretIndex = textBox.Text.Length;
+            }
+            else
+            {
+                // 새로운 헤딩으로 변환
+                textBox.Text = prefix + textBox.Text;
+                textBox.CaretIndex = textBox.Text.Length;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 리스트 토글 (Ctrl+L)
+        /// </summary>
+        private bool HandleListToggle(TextBox textBox)
+        {
+            var lineVM = textBox.DataContext as MarkdownLineViewModel;
+            if (lineVM == null) return false;
+
+            // 이미 리스트인 경우 해제
+            if (lineVM.IsList)
+            {
+                // 리스트 기호 제거
+                var listPattern = @"^(\-|\*|\+|\d+\.)\s+";
+                textBox.Text = Regex.Replace(textBox.Text, listPattern, "");
+                textBox.CaretIndex = 0;
+            }
+            else
+            {
+                // 리스트로 변환
+                textBox.Text = "- " + textBox.Text;
+                textBox.CaretIndex = textBox.Text.Length;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Enter 키 처리 - 리스트 자동 계속
+        /// </summary>
+        private void HandleEnterWithList(NoteEditorViewModel vm, MarkdownLineViewModel currentLine)
+        {
+            _isInternalFocusChange = true;
+
+            // 리스트나 제목 기호만 있으면 제거
+            if (currentLine.ShouldCleanupOnEnter())
+            {
+                // 리스트 해제
+                currentLine.IsList = false;
+                currentLine.ListSymbol = "";
+            }
+
+            var currentIndex = vm.Lines.IndexOf(currentLine);
+
+            // 현재 라인의 편집 모드 종료
+            currentLine.IsEditing = false;
+
+            // 새 라인 생성
+            vm.InsertNewLineAt(currentIndex + 1);
+            var newLine = vm.Lines[currentIndex + 1];
+
+            // 리스트 자동 계속
+            if (currentLine.IsList && !string.IsNullOrWhiteSpace(currentLine.Content)
+                && !currentLine.ShouldCleanupOnEnter())
+            {
+                string nextPrefix = currentLine.GetNextListPrefix();
+                if (!string.IsNullOrEmpty(nextPrefix))
+                {
+                    newLine.Content = nextPrefix;
+                }
+            }
+
+            // 새 라인에 포커스
+            Dispatcher.InvokeAsync(() =>
+            {
+                editorView.UpdateLayout();
+
+                var newContainer = ItemsControlContainer.ItemContainerGenerator
+                    .ContainerFromIndex(currentIndex + 1) as FrameworkElement;
+
+                if (newContainer != null)
+                {
+                    var newTextBox = FindVisualChild<TextBox>(newContainer);
+                    if (newTextBox != null)
+                    {
+                        newTextBox.Focus();
+                        // 리스트 prefix가 있으면 커서를 끝으로
+                        if (!string.IsNullOrEmpty(newLine.Content))
+                        {
+                            newTextBox.CaretIndex = newTextBox.Text.Length;
+                        }
+                    }
+                }
+
+                _isInternalFocusChange = false;
+            }, DispatcherPriority.Input);
         }
 
         private bool HandleArrowNavigation(NoteEditorViewModel vm, TextBox textBox, MarkdownLineViewModel lineVM, Key key)
