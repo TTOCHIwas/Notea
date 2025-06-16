@@ -1,20 +1,31 @@
-﻿using Notea.Modules.Subject.Models;
+﻿using Notea.Helpers;
+using Notea.Modules.Subject.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using static Notea.Modules.Subject.ViewModels.MarkdownLineViewModel;
 
 namespace Notea.Modules.Subject.ViewModels
 {
     public class NoteEditorViewModel : INotifyPropertyChanged
     {
+
+        private readonly UndoRedoManager<NoteState> _undoRedoManager = new();
         public ObservableCollection<MarkdownLineViewModel> Lines { get; set; }
         private int _nextDisplayOrder = 1;
         public int SubjectId { get; set; } = 1;
         public int CurrentCategoryId { get; set; } = 1;
+
+        private Stack<(int categoryId, int level)> _categoryStack = new();
+
+
+        private DispatcherTimer _idleTimer;
+        private DateTime _lastActivityTime;
+        private const int IDLE_TIMEOUT_SECONDS = 5; // 5초간 입력이 없으면 저장
 
         public NoteEditorViewModel()
         {
@@ -28,6 +39,8 @@ namespace Notea.Modules.Subject.ViewModels
                     Content = ""  // 빈 내용으로 시작
                 }
             };
+
+            InitializeIdleTimer();
 
             // PropertyChanged 이벤트 등록
             Lines[0].PropertyChanged += OnLinePropertyChanged;
@@ -52,47 +65,15 @@ namespace Notea.Modules.Subject.ViewModels
         public NoteEditorViewModel(List<NoteCategory> loadedNotes)
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>();
+            InitializeIdleTimer();
             int currentDisplayOrder = 1;
 
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
+                // 재귀적으로 카테고리와 라인 추가
                 foreach (var category in loadedNotes)
                 {
-                    // 카테고리 ID 업데이트
-                    CurrentCategoryId = category.CategoryId;
-
-                    // 카테고리 제목 추가
-                    var categoryLine = new MarkdownLineViewModel
-                    {
-                        Content = category.Title,
-                        IsEditing = false,
-                        SubjectId = this.SubjectId,
-                        CategoryId = category.CategoryId,
-                        TextId = 0,
-                        IsHeadingLine = true,
-                        DisplayOrder = currentDisplayOrder++
-                    };
-
-                    Lines.Add(categoryLine);
-                    RegisterLineEvents(categoryLine); // 이벤트 등록 메서드로 분리
-
-                    // 각 라인 추가
-                    foreach (var line in category.Lines)
-                    {
-                        var contentLine = new MarkdownLineViewModel
-                        {
-                            Content = line.Content,
-                            IsEditing = false,
-                            SubjectId = this.SubjectId,
-                            CategoryId = category.CategoryId,
-                            TextId = line.Index,
-                            Index = Lines.Count,
-                            DisplayOrder = currentDisplayOrder++
-                        };
-
-                        Lines.Add(contentLine);
-                        RegisterLineEvents(contentLine); // 이벤트 등록 메서드로 분리
-                    }
+                    currentDisplayOrder = AddCategoryWithHierarchy(category, currentDisplayOrder);
                 }
 
                 _nextDisplayOrder = currentDisplayOrder;
@@ -108,12 +89,159 @@ namespace Notea.Modules.Subject.ViewModels
                     Content = "",
                     DisplayOrder = 1
                 };
+                emptyLine.SetOriginalContent("");
                 Lines.Add(emptyLine);
                 RegisterLineEvents(emptyLine);
             }
 
-            // CollectionChanged 이벤트 한 번만 등록
             Lines.CollectionChanged += Lines_CollectionChanged;
+        }
+
+        /// <summary>
+        /// 카테고리와 하위 구조를 재귀적으로 추가
+        /// </summary>
+        private int AddCategoryWithHierarchy(NoteCategory category, int displayOrder)
+        {
+            CurrentCategoryId = category.CategoryId;
+
+            // 카테고리 제목 추가
+            var categoryLine = new MarkdownLineViewModel
+            {
+                Content = category.Title,
+                IsEditing = false,
+                SubjectId = this.SubjectId,
+                CategoryId = category.CategoryId,
+                TextId = 0,
+                IsHeadingLine = true,
+                Level = category.Level,
+                DisplayOrder = displayOrder++
+            };
+
+            categoryLine.SetOriginalContent(category.Title);
+            Lines.Add(categoryLine);
+            RegisterLineEvents(categoryLine);
+
+            // 카테고리의 라인들 추가
+            foreach (var line in category.Lines)
+            {
+                var contentLine = new MarkdownLineViewModel
+                {
+                    Content = line.Content,
+                    IsEditing = false,
+                    SubjectId = this.SubjectId,
+                    CategoryId = category.CategoryId,
+                    TextId = line.Index,
+                    Index = Lines.Count,
+                    DisplayOrder = displayOrder++
+                };
+
+                contentLine.SetOriginalContent(line.Content);
+                Lines.Add(contentLine);
+                RegisterLineEvents(contentLine);
+            }
+
+            // 하위 카테고리들 재귀적으로 추가
+            foreach (var subCategory in category.SubCategories)
+            {
+                displayOrder = AddCategoryWithHierarchy(subCategory, displayOrder);
+            }
+
+            return displayOrder;
+        }
+
+        private void InitializeIdleTimer()
+        {
+            _idleTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _idleTimer.Tick += CheckIdleAndSave;
+            _idleTimer.Start();
+            _lastActivityTime = DateTime.Now;
+        }
+
+        public void UpdateActivity()
+        {
+            _lastActivityTime = DateTime.Now;
+        }
+
+        private void CheckIdleAndSave(object sender, EventArgs e)
+        {
+            if ((DateTime.Now - _lastActivityTime).TotalSeconds >= IDLE_TIMEOUT_SECONDS)
+            {
+                SaveAllChanges();
+            }
+        }
+
+        public class NoteState
+        {
+            public List<LineState> Lines { get; set; }
+            public DateTime Timestamp { get; set; }
+        }
+
+        public class LineState
+        {
+            public string Content { get; set; }
+            public int CategoryId { get; set; }
+            public int TextId { get; set; }
+            public bool IsHeadingLine { get; set; }
+        }
+
+        // 현재 상태 저장
+        private void SaveCurrentState()
+        {
+            var state = new NoteState
+            {
+                Timestamp = DateTime.Now,
+                Lines = Lines.Select(l => new LineState
+                {
+                    Content = l.Content,
+                    CategoryId = l.CategoryId,
+                    TextId = l.TextId,
+                    IsHeadingLine = l.IsHeadingLine
+                }).ToList()
+            };
+
+            _undoRedoManager.AddState(state);
+        }
+
+        // Ctrl+Z 처리
+        public void Undo()
+        {
+            var previousState = _undoRedoManager.Undo();
+            if (previousState != null)
+            {
+                RestoreState(previousState);
+            }
+        }
+
+        // Ctrl+Y 처리
+        public void Redo()
+        {
+            var nextState = _undoRedoManager.Redo();
+            if (nextState != null)
+            {
+                RestoreState(nextState);
+            }
+        }
+
+        private void RestoreState(NoteState state)
+        {
+            // 상태 복원 로직
+            Lines.Clear();
+            foreach (var lineState in state.Lines)
+            {
+                var line = new MarkdownLineViewModel
+                {
+                    Content = lineState.Content,
+                    CategoryId = lineState.CategoryId,
+                    TextId = lineState.TextId,
+                    IsHeadingLine = lineState.IsHeadingLine,
+                    SubjectId = this.SubjectId
+                };
+                Lines.Add(line);
+                RegisterLineEvents(line);
+            }
         }
 
         private void RegisterLineEvents(MarkdownLineViewModel line)
@@ -128,7 +256,6 @@ namespace Notea.Modules.Subject.ViewModels
             line.PropertyChanged -= OnLinePropertyChanged;
             line.CategoryCreated -= OnCategoryCreated;
             line.RequestFindPreviousCategory -= OnRequestFindPreviousCategory;
-            line.Dispose(); // Timer dispose
         }
 
         private void Lines_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -203,12 +330,11 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
                 {
-                    Debug.WriteLine($"[DEBUG] 가장 최근 카테고리 찾음: {Lines[i].CategoryId} (라인 {i})");
+                    Debug.WriteLine($"[DEBUG] 가장 최근 카테고리 찾음: {Lines[i].CategoryId} (라인 {i}, 레벨 {Lines[i].Level})");
                     return Lines[i].CategoryId;
                 }
             }
 
-            // 카테고리가 없으면 CurrentCategoryId 사용
             Debug.WriteLine($"[DEBUG] 카테고리를 찾지 못함. CurrentCategoryId 사용: {CurrentCategoryId}");
             return CurrentCategoryId > 0 ? CurrentCategoryId : 1;
         }
@@ -223,7 +349,6 @@ namespace Notea.Modules.Subject.ViewModels
                     if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
                     {
                         line.IsHeadingLine = true;
-                        line.SaveImmediately();
                         UpdateSubsequentLinesCategoryId(Lines.IndexOf(line) + 1, line.CategoryId);
                     }
                 }
@@ -516,24 +641,109 @@ namespace Notea.Modules.Subject.ViewModels
             Debug.WriteLine($"[DEBUG] 모든 라인의 CategoryId 업데이트 완료. 현재 카테고리: {CurrentCategoryId}");
         }
 
-        /// <summary>
-        /// 모든 변경사항을 데이터베이스에 일괄 저장
-        /// </summary>
+        // 변경된 라인만 저장
         public void SaveAllChanges()
         {
             try
             {
-                var linesToSave = Lines.Where(l => l.TextId > 0).ToList();
-                if (linesToSave.Any())
+                var changedLines = Lines.Where(l => l.HasChanges).ToList();
+                if (!changedLines.Any())
                 {
-                    NoteRepository.SaveLinesInTransaction(linesToSave);
-                    Debug.WriteLine($"[DEBUG] {linesToSave.Count}개 라인 일괄 저장 완료");
+                    Debug.WriteLine("[SAVE] 변경사항 없음");
+                    return;
+                }
+
+                Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
+
+                using var transaction = NoteRepository.BeginTransaction();
+                try
+                {
+                    foreach (var line in changedLines)
+                    {
+                        if (line.IsHeadingLine)
+                        {
+                            // 부모 카테고리 찾기
+                            int? parentId = FindParentForHeading(line);
+
+                            if (line.CategoryId <= 0)
+                            {
+                                // 새 카테고리 생성
+                                int newCategoryId = NoteRepository.InsertCategory(
+                                    line.Content,
+                                    line.SubjectId,
+                                    line.DisplayOrder,
+                                    line.Level,
+                                    parentId,
+                                    transaction);
+                                line.CategoryId = newCategoryId;
+                            }
+                            else
+                            {
+                                // 기존 카테고리 업데이트
+                                NoteRepository.UpdateCategory(line.CategoryId, line.Content, transaction);
+                            }
+                        }
+                        else
+                        {
+                            if (line.TextId <= 0)
+                            {
+                                // 새 텍스트 생성
+                                int newTextId = NoteRepository.InsertNewLine(line, line.DisplayOrder);
+                                line.TextId = newTextId;
+                            }
+                            else
+                            {
+                                // 기존 텍스트 업데이트
+                                NoteRepository.UpdateLine(line);
+                            }
+                        }
+
+                        // 저장 완료 후 변경사항 리셋
+                        line.ResetChanges();
+                    }
+
+                    transaction.Commit();
+                    Debug.WriteLine($"[SAVE] 저장 완료");
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ERROR] 일괄 저장 실패: {ex.Message}");
+                Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 헤딩의 부모 카테고리 찾기
+        /// </summary>
+        private int? FindParentForHeading(MarkdownLineViewModel heading)
+        {
+            int headingIndex = Lines.IndexOf(heading);
+
+            // 현재 헤딩 이전의 라인들에서 더 낮은 레벨의 헤딩 찾기
+            for (int i = headingIndex - 1; i >= 0; i--)
+            {
+                var line = Lines[i];
+                if (line.IsHeadingLine && line.Level < heading.Level && line.CategoryId > 0)
+                {
+                    return line.CategoryId;
+                }
+            }
+
+            return null;
+        }
+
+
+
+        // View가 닫힐 때 호출
+        public void OnViewClosing()
+        {
+            _idleTimer?.Stop();
+            SaveAllChanges();
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

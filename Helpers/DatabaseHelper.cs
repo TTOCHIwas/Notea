@@ -201,6 +201,48 @@ namespace Notea.Helpers
             return result;
         }
 
+        public static void UpdateSchemaForHeadingLevel()
+        {
+            try
+            {
+                // category 테이블에 level 컬럼 추가 (없으면)
+                string checkLevelColumn = @"
+            SELECT COUNT(*) as count 
+            FROM pragma_table_info('category') 
+            WHERE name='level'";
+
+                var result = ExecuteSelect(checkLevelColumn);
+                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
+                {
+                    string addLevelColumn = @"
+                ALTER TABLE category ADD COLUMN level INTEGER DEFAULT 1";
+                    ExecuteNonQuery(addLevelColumn);
+                    Debug.WriteLine("[DB] category.level 컬럼 추가됨");
+                }
+
+                // parentCategoryId 컬럼 추가 (계층 구조를 위해)
+                string checkParentColumn = @"
+            SELECT COUNT(*) as count 
+            FROM pragma_table_info('category') 
+            WHERE name='parentCategoryId'";
+
+                result = ExecuteSelect(checkParentColumn);
+                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
+                {
+                    string addParentColumn = @"
+                ALTER TABLE category ADD COLUMN parentCategoryId INTEGER DEFAULT NULL";
+                    ExecuteNonQuery(addParentColumn);
+                    Debug.WriteLine("[DB] category.parentCategoryId 컬럼 추가됨");
+                }
+
+                Debug.WriteLine("[DB] 헤딩 레벨 스키마 업데이트 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] 헤딩 레벨 스키마 업데이트 실패: {ex.Message}");
+            }
+        }
+
         // DB 경로 확인용
         public static string GetDatabasePath() => dbPath;
     }

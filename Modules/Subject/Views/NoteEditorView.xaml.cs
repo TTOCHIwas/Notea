@@ -43,9 +43,6 @@ namespace Notea.Modules.Subject.Views
                 vm.IsComposing = false; // IME 조합 상태 리셋
                 vm.UpdateInlinesFromContent();
 
-                // 즉시 저장
-                vm.SaveImmediately();
-
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     vm.IsEditing = false;

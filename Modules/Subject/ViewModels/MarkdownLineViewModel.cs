@@ -25,23 +25,38 @@ namespace Notea.Modules.Subject.ViewModels
         private string _placeholder = "";
         private bool _isComposing = false;
         private bool _hasFocus = false;
-        private bool _isDirty = false;
-        private DispatcherTimer _saveTimer;
+        // Timer 제거 - 더 이상 자동 저장하지 않음
 
-        public int TextId { get; set; } // 기본 키
-        public int CategoryId { get; set; } // 제목 줄에 연결
-        public int SubjectId { get; set; } // 과목 식별용
-        public int Index { get; set; } // 줄 순서
-
+        public int TextId { get; set; }
+        public int CategoryId { get; set; }
+        public int SubjectId { get; set; }
+        public int Index { get; set; }
         public bool IsHeadingLine { get; set; } = false;
+
+        // 변경 추적을 위한 원본 데이터 저장
+        public string OriginalContent { get; private set; }
+        public bool HasChanges => Content != OriginalContent;
 
         public MarkdownLineViewModel()
         {
-            InitializeSaveTimer();
             Content = "";
+            OriginalContent = "";
             UpdateInlinesFromContent();
             UpdatePlaceholder();
         }
+
+        // 데이터베이스에서 로드한 후 호출
+        public void SetOriginalContent(string content)
+        {
+            OriginalContent = content;
+        }
+
+        // 저장 후 호출하여 변경사항 리셋
+        public void ResetChanges()
+        {
+            OriginalContent = Content;
+        }
+
 
         private int _displayOrder;
         public int DisplayOrder
@@ -57,24 +72,18 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
-        /// <summary>
-        /// 자동 저장을 위한 타이머 초기화
-        /// </summary>
-        private void InitializeSaveTimer()
+        private int _level = 0;
+        public int Level
         {
-            _saveTimer = new DispatcherTimer
+            get => _level;
+            set
             {
-                Interval = TimeSpan.FromMilliseconds(1000) // 1초 지연 후 저장
-            };
-            _saveTimer.Tick += (s, e) =>
-            {
-                _saveTimer.Stop();
-                if (_isDirty)
+                if (_level != value)
                 {
-                    SaveToDatabase();
-                    _isDirty = false;
+                    _level = value;
+                    OnPropertyChanged();
                 }
-            };
+            }
         }
 
         public string HeadingText
@@ -86,19 +95,6 @@ namespace Notea.Modules.Subject.ViewModels
                     return NoteRepository.ExtractHeadingText(Content);
                 }
                 return Content;
-            }
-        }
-
-        public bool IsDirty
-        {
-            get => _isDirty;
-            private set
-            {
-                if (_isDirty != value)
-                {
-                    _isDirty = value;
-                    OnPropertyChanged();
-                }
             }
         }
 
@@ -168,12 +164,6 @@ namespace Notea.Modules.Subject.ViewModels
                         IsComposing = false;
                         HasFocus = false;
 
-                        // 편집 완료 시 즉시 저장
-                        if (_isDirty)
-                        {
-                            SaveToDatabase();
-                            _isDirty = false;
-                        }
                     }
                 }
             }
@@ -190,14 +180,14 @@ namespace Notea.Modules.Subject.ViewModels
                     string oldContent = _content;
                     _content = preprocessed;
 
-                    // 제목 여부 체크 (화면 표시용 - 모든 제목 레벨)
+                    // 헤딩 레벨 감지
+                    int detectedLevel = NoteRepository.GetHeadingLevel(_content);
+                    bool isHeading = detectedLevel > 0;
+
                     bool wasHeading = IsHeadingLine;
-                    bool isMarkdownHeading = NoteRepository.IsMarkdownHeading(_content);
+                    IsHeadingLine = isHeading;
+                    Level = detectedLevel;
 
-                    // 카테고리로 저장될 제목인지 체크 (# 하나만)
-                    IsHeadingLine = NoteRepository.IsCategoryHeading(_content);
-
-                    // 제목 상태가 변경된 경우 처리
                     if (wasHeading != IsHeadingLine)
                     {
                         OnHeadingStatusChanged(wasHeading, IsHeadingLine);
@@ -205,18 +195,11 @@ namespace Notea.Modules.Subject.ViewModels
 
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(HeadingText));
+                    OnPropertyChanged(nameof(HasChanges));
                     ApplyMarkdownStyle();
                     UpdateInlinesFromContent();
                     UpdatePlaceholder();
                     OnPropertyChanged(nameof(ShowPlaceholder));
-
-                    // 변경사항이 있음을 표시하고 자동 저장 타이머 시작
-                    IsDirty = true;
-                    if (_saveTimer != null)
-                    {
-                        _saveTimer.Stop();
-                        _saveTimer.Start();
-                    }
                 }
             }
         }
@@ -715,22 +698,6 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 Debug.WriteLine($"[DB ERROR] 자동 저장 실패: {ex.Message}");
             }
-        }
-
-        public void SaveImmediately()
-        {
-            _saveTimer?.Stop();
-            if (_isDirty)
-            {
-                SaveToDatabase();
-                _isDirty = false;
-            }
-        }
-
-        public void Dispose()
-        {
-            _saveTimer?.Stop();
-            _saveTimer = null;
         }
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
