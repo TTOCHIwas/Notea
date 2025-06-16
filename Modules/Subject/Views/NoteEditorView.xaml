@@ -14,6 +14,7 @@
     <UserControl.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
         <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+        <local:ImagePathConverter x:Key="ImagePathConverter" />
 
         <!-- Placeholder 스타일 -->
         <Style x:Key="PlaceholderTextStyle" TargetType="TextBlock">
@@ -129,7 +130,7 @@
                             <Border Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
                                     Margin="4" BorderBrush="#CCCCCC" BorderThickness="1">
                                 <Grid>
-                                    <Image Source="{Binding ImageUrl}" 
+                                    <Image Source="{Binding ImageUrl, Converter={StaticResource ImagePathConverter}}" 
                                            MaxHeight="400" 
                                            Stretch="Uniform"
                                            HorizontalAlignment="Left"
@@ -140,7 +141,7 @@
                                             HorizontalAlignment="Right" 
                                             VerticalAlignment="Top"
                                             Margin="5"
-                                            Background="Red"
+                                            Background="#1e1e1e"
                                             Foreground="White"
                                             BorderThickness="0"
                                             Padding="5,2"

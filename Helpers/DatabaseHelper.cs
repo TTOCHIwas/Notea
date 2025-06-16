@@ -403,6 +403,75 @@ namespace Notea.Helpers
             }
         }
 
+        public static void VerifyDatabaseIntegrity(int subjectId)
+        {
+            try
+            {
+                Debug.WriteLine("=== 데이터베이스 무결성 검증 ===");
+
+                // 1. 고아 noteContent 찾기
+                string orphanQuery = $@"
+            SELECT n.textId, n.content, n.categoryId
+            FROM noteContent n
+            LEFT JOIN category c ON n.categoryId = c.categoryId
+            WHERE n.subJectId = {subjectId} AND c.categoryId IS NULL";
+
+                var orphanResult = ExecuteSelect(orphanQuery);
+                if (orphanResult.Rows.Count > 0)
+                {
+                    Debug.WriteLine($"[DB ERROR] 고아 noteContent 발견: {orphanResult.Rows.Count}개");
+                    foreach (DataRow row in orphanResult.Rows)
+                    {
+                        Debug.WriteLine($"  TextId: {row["textId"]}, CategoryId: {row["categoryId"]}");
+                    }
+                }
+
+                // 2. DisplayOrder 중복 검사
+                string duplicateQuery = $@"
+            SELECT displayOrder, COUNT(*) as cnt
+            FROM (
+                SELECT displayOrder FROM category WHERE subJectId = {subjectId}
+                UNION ALL
+                SELECT displayOrder FROM noteContent WHERE subJectId = {subjectId}
+            )
+            GROUP BY displayOrder
+            HAVING COUNT(*) > 1";
+
+                var duplicateResult = ExecuteSelect(duplicateQuery);
+                if (duplicateResult.Rows.Count > 0)
+                {
+                    Debug.WriteLine($"[DB ERROR] DisplayOrder 중복 발견:");
+                    foreach (DataRow row in duplicateResult.Rows)
+                    {
+                        Debug.WriteLine($"  DisplayOrder: {row["displayOrder"]}, Count: {row["cnt"]}");
+                    }
+                }
+
+                // 3. 이미지 파일 검증
+                string imageQuery = $@"
+            SELECT textId, imageUrl
+            FROM noteContent
+            WHERE subJectId = {subjectId} AND contentType = 'image' AND imageUrl IS NOT NULL";
+
+                var imageResult = ExecuteSelect(imageQuery);
+                foreach (DataRow row in imageResult.Rows)
+                {
+                    string imageUrl = row["imageUrl"].ToString();
+                    string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, imageUrl);
+                    if (!File.Exists(fullPath))
+                    {
+                        Debug.WriteLine($"[DB ERROR] 이미지 파일 없음: TextId={row["textId"]}, Path={imageUrl}");
+                    }
+                }
+
+                Debug.WriteLine("=== 검증 완료 ===");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] 무결성 검증 실패: {ex.Message}");
+            }
+        }
+
         // DB 경로 확인용
         public static string GetDatabasePath() => dbPath;
     }

@@ -10,6 +10,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.IO;
 using Notea.Modules.Subject.ViewModels;
+using System.Windows.Shapes;
+using Path = System.IO.Path;
 
 namespace Notea.Modules.Subject.Views
 {
@@ -250,7 +252,7 @@ namespace Notea.Modules.Subject.Views
 
                 string fullPath = Path.Combine(imageFolder, fileName);
 
-                // PNG 인코더 사용
+                // PNG 인코더 사용하여 저장
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(image));
 
@@ -259,8 +261,23 @@ namespace Notea.Modules.Subject.Views
                     encoder.Save(fileStream);
                 }
 
-                // 상대 경로 반환
-                return $"data/images/{fileName}";
+                // 상대 경로 반환 (백슬래시를 슬래시로 변경)
+                string relativePath = $"data/images/{fileName}".Replace('\\', '/');
+
+                Debug.WriteLine($"[IMAGE] 이미지 저장 완료. 전체 경로: {fullPath}");
+                Debug.WriteLine($"[IMAGE] 상대 경로: {relativePath}");
+
+                // 파일이 실제로 저장되었는지 확인
+                if (File.Exists(fullPath))
+                {
+                    Debug.WriteLine($"[IMAGE] 파일 확인됨. 크기: {new FileInfo(fullPath).Length} bytes");
+                    return relativePath;
+                }
+                else
+                {
+                    Debug.WriteLine("[IMAGE ERROR] 파일이 저장되지 않음");
+                    return null;
+                }
             }
             catch (Exception ex)
             {

@@ -599,7 +599,7 @@ namespace Notea.Modules.Subject.Models
         /// <summary>
         /// 기존 일반 텍스트 라인 업데이트
         /// </summary>
-        public static void UpdateLine(MarkdownLineViewModel line)
+        public static void UpdateLine(MarkdownLineViewModel line, Transaction transaction = null)
         {
             if (line.TextId <= 0)
             {
@@ -609,27 +609,154 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                string query = $@"
-            UPDATE noteContent 
-            SET content = '{(line.Content ?? "").Replace("'", "''")}',
-                contentType = '{line.ContentType}',
-                imageUrl = {(string.IsNullOrEmpty(line.ImageUrl) ? "NULL" : $"'{line.ImageUrl}'")}
-            WHERE textId = {line.TextId}";
+                SqliteConnection conn;
+                SqliteTransaction trans = null;
+                bool shouldDispose = false;
 
-                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
-
-                if (rowsAffected == 0)
+                if (transaction != null)
                 {
-                    Debug.WriteLine($"[WARNING] UpdateLine 실행됐지만 영향받은 행이 없음. TextId: {line.TextId}");
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
                 }
                 else
                 {
-                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, Type: {line.ContentType}");
+                    conn = new SqliteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = @"
+                UPDATE noteContent 
+                SET content = @content,
+                    contentType = @contentType,
+                    imageUrl = @imageUrl,
+                    categoryId = @categoryId,
+                    displayOrder = @displayOrder
+                WHERE textId = @textId";
+
+                    cmd.Parameters.AddWithValue("@content", line.Content ?? "");
+                    cmd.Parameters.AddWithValue("@contentType", line.ContentType);
+                    cmd.Parameters.AddWithValue("@imageUrl", line.ImageUrl ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
+                    cmd.Parameters.AddWithValue("@displayOrder", line.DisplayOrder);
+                    cmd.Parameters.AddWithValue("@textId", line.TextId);
+
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, 영향받은 행: {rowsAffected}");
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn.Dispose();
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] UpdateLine 실패: {ex.Message}");
+            }
+        }
+
+        public static void UpdateLineDisplayOrder(int textId, int displayOrder, Transaction transaction = null)
+        {
+            try
+            {
+                SqliteConnection conn;
+                SqliteTransaction trans = null;
+                bool shouldDispose = false;
+
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SqliteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = @"
+                UPDATE noteContent 
+                SET displayOrder = @displayOrder
+                WHERE textId = @textId";
+
+                    cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+                    cmd.Parameters.AddWithValue("@textId", textId);
+
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 텍스트 DisplayOrder 업데이트: TextId={textId}, Order={displayOrder}");
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateLineDisplayOrder 실패: {ex.Message}");
+            }
+        }
+
+        public static void UpdateCategoryDisplayOrder(int categoryId, int displayOrder, Transaction transaction = null)
+        {
+            try
+            {
+                SqliteConnection conn;
+                SqliteTransaction trans = null;
+                bool shouldDispose = false;
+
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SqliteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = @"
+                UPDATE category 
+                SET displayOrder = @displayOrder
+                WHERE categoryId = @categoryId";
+
+                    cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 카테고리 DisplayOrder 업데이트: CategoryId={categoryId}, Order={displayOrder}");
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateCategoryDisplayOrder 실패: {ex.Message}");
             }
         }
 

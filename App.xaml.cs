@@ -26,6 +26,12 @@ namespace Notea
 
             // 이미지 저장 폴더 생성
             CreateImageFolder();
+
+            #if DEBUG
+            // 디버그 모드에서만 실행
+            Notea.Helpers.DatabaseHelper.DebugPrintAllData(1);
+            Notea.Helpers.DatabaseHelper.VerifyDatabaseIntegrity(1);
+            #endif
         }
 
         private void CreateImageFolder()
