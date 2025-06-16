@@ -28,7 +28,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         private DispatcherTimer _idleTimer;
         private DateTime _lastActivityTime;
-        private const int IDLE_TIMEOUT_SECONDS = 5; // 5초간 입력이 없으면 저장
+        private const int IDLE_TIMEOUT_SECONDS = 2; // 5초간 입력이 없으면 저장
 
         public NoteEditorViewModel()
         {

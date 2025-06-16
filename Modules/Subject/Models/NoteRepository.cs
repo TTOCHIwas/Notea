@@ -1027,7 +1027,7 @@ namespace Notea.Modules.Subject.Models
                     // 기본 카테고리 생성
                     string insertQuery = $@"
                 INSERT INTO category (categoryId, title, subJectId, timeId, displayOrder, level) 
-                VALUES (1, '# 기본', {subjectId}, 1, 0, 1)";
+                VALUES (1, ' ', {subjectId}, 1, 0, 1)";
                     DatabaseHelper.ExecuteNonQuery(insertQuery);
                     Debug.WriteLine("[DB] 기본 카테고리 생성됨");
                 }

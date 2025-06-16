@@ -106,8 +106,6 @@ namespace Notea.Helpers
 
                     -- 기본 데이터 삽입
                     INSERT OR IGNORE INTO subject (subJectId, title) VALUES (1, '윈도우즈 프로그래밍');
-                    INSERT OR IGNORE INTO time (timeId, createDate, record) VALUES (1, datetime('now'), 1);
-                    INSERT OR IGNORE INTO category (categoryId, title, subJectId, timeId) VALUES (1, '# 기본 카테고리', 1, 1);
                     ";
 
                 command.ExecuteNonQuery();
