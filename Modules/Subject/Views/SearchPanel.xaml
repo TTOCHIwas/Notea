@@ -30,8 +30,10 @@
                        Margin="0,0,10,0"/>
 
             <TextBox Grid.Column="1" 
+                     Style="{StaticResource UnderlineTextBoxStyle}"
                      x:Name="SearchBox"
                      Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                     Background="Transparent"
                      VerticalAlignment="Center">
                 <TextBox.InputBindings>
                     <KeyBinding Key="Enter" Command="{Binding SearchCommand}"/>
@@ -62,10 +64,10 @@
                        VerticalAlignment="Center"
                        Margin="0,0,10,0"/>
 
-            <TextBlock Grid.Column="6" 
+            <!--<TextBlock Grid.Column="6" 
                        Text="{Binding ResultCountText}" 
                        VerticalAlignment="Center"
-                       Foreground="Gray"/>
+                       Foreground="Gray"/>-->
 
             <Button Grid.Column="7" 
                     Content="✕" 
