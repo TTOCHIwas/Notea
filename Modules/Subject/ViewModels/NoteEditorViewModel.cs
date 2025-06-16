@@ -5,13 +5,14 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls;
 using System.Windows.Input;
+using static Notea.Modules.Subject.ViewModels.MarkdownLineViewModel;
 
 namespace Notea.Modules.Subject.ViewModels
 {
     public class NoteEditorViewModel : INotifyPropertyChanged
     {
         public ObservableCollection<MarkdownLineViewModel> Lines { get; set; }
-
+        private int _nextDisplayOrder = 1;
         public int SubjectId { get; set; } = 1;
         public int CurrentCategoryId { get; set; } = 1;
 
@@ -51,14 +52,11 @@ namespace Notea.Modules.Subject.ViewModels
         public NoteEditorViewModel(List<NoteCategory> loadedNotes)
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>();
-
+            int currentDisplayOrder = 1;
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
                 foreach (var category in loadedNotes)
                 {
-                    // 카테고리 ID 업데이트
-                    CurrentCategoryId = category.CategoryId;
-
                     // 카테고리 제목 추가
                     var categoryLine = new MarkdownLineViewModel
                     {
@@ -67,7 +65,8 @@ namespace Notea.Modules.Subject.ViewModels
                         SubjectId = this.SubjectId,
                         CategoryId = category.CategoryId,
                         TextId = 0,
-                        IsHeadingLine = true  // 카테고리는 제목으로 설정
+                        IsHeadingLine = true,
+                        DisplayOrder = currentDisplayOrder++
                     };
 
                     Lines.Add(categoryLine);
@@ -83,7 +82,8 @@ namespace Notea.Modules.Subject.ViewModels
                             SubjectId = this.SubjectId,
                             CategoryId = category.CategoryId,
                             TextId = line.Index,
-                            Index = Lines.Count
+                            Index = Lines.Count,
+                            DisplayOrder = currentDisplayOrder++
                         };
 
                         Lines.Add(contentLine);
@@ -91,7 +91,7 @@ namespace Notea.Modules.Subject.ViewModels
                     }
                 }
 
-                Debug.WriteLine($"[DEBUG] 초기화된 라인 수: {Lines.Count}, 현재 CategoryId: {CurrentCategoryId}");
+                _nextDisplayOrder = currentDisplayOrder;
             }
             else
             {
@@ -147,50 +147,141 @@ namespace Notea.Modules.Subject.ViewModels
         /// </summary>
         public void AddNewLine()
         {
+            int categoryIdForNewLine = GetCurrentCategoryIdForNewLine();
+            int displayOrder = Lines.Count > 0 ? Lines.Last().DisplayOrder + 1 : 1;
+
             var newLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
                 Content = "",
                 SubjectId = this.SubjectId,
-                CategoryId = this.CurrentCategoryId,
+                CategoryId = categoryIdForNewLine > 0 ? categoryIdForNewLine : 1, // 기본값 보장
                 Index = Lines.Count,
+                DisplayOrder = displayOrder,
                 TextId = 0
             };
 
             Lines.Add(newLine);
 
-            // PropertyChanged 이벤트 등록
+            // 이벤트 등록
             newLine.PropertyChanged += OnLinePropertyChanged;
+            newLine.CategoryCreated += OnCategoryCreated;
+            newLine.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
 
-            Debug.WriteLine($"[DEBUG] 새 라인 추가됨. 현재 CategoryId: {CurrentCategoryId}");
+            Debug.WriteLine($"[DEBUG] 새 라인 추가됨. CategoryId: {newLine.CategoryId}, DisplayOrder: {displayOrder}");
+        }
+
+        private int GetCurrentCategoryIdForNewLine()
+        {
+            // 마지막 라인부터 역순으로 가장 최근의 카테고리 찾기
+            for (int i = Lines.Count - 1; i >= 0; i--)
+            {
+                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                {
+                    Debug.WriteLine($"[DEBUG] 가장 최근 카테고리 찾음: {Lines[i].CategoryId} (라인 {i})");
+                    return Lines[i].CategoryId;
+                }
+            }
+
+            // 카테고리가 없으면 CurrentCategoryId 사용
+            Debug.WriteLine($"[DEBUG] 카테고리를 찾지 못함. CurrentCategoryId 사용: {CurrentCategoryId}");
+            return CurrentCategoryId > 0 ? CurrentCategoryId : 1;
         }
 
         private void OnLinePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             if (sender is MarkdownLineViewModel line)
             {
+                // CategoryCreated 이벤트 구독
+                if (e.PropertyName == null) // 처음 추가될 때
+                {
+                    line.CategoryCreated += OnCategoryCreated;
+                    line.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
+                }
+                if (e.PropertyName == nameof(MarkdownLineViewModel.Content))
+                {
+                    // 일반 텍스트가 제목으로 변경되는 경우
+                    if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
+                    {
+                        // DisplayOrder는 유지하면서 카테고리로 변환
+                        line.IsHeadingLine = true;
+                        line.SaveImmediately();
+
+                        // 이후 라인들의 CategoryId 업데이트
+                        UpdateSubsequentLinesCategoryId(Lines.IndexOf(line) + 1, line.CategoryId);
+                    }
+                }
                 if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
                 {
-                    // CategoryId가 변경된 경우 (새로운 제목이 저장됨)
+                    // CategoryId가 변경된 경우
                     if (line.IsHeadingLine && line.CategoryId > 0)
                     {
                         UpdateCurrentCategory(line);
                     }
                 }
-                else if (e.PropertyName == nameof(MarkdownLineViewModel.IsHeadingLine))
+                else if (e.PropertyName == nameof(MarkdownLineViewModel.Content))
                 {
-                    // 제목 상태가 변경된 경우
-                    if (line.IsHeadingLine)
+                    // Content가 변경되고 제목이 된 경우
+                    if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
                     {
-                        Debug.WriteLine($"[DEBUG] 라인이 제목으로 변경됨: {line.Content}");
-                        
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[DEBUG] 라인이 일반 텍스트로 변경됨: {line.Content}");
+                        line.IsHeadingLine = true;
+                        // 제목으로 변경되면 즉시 저장하여 CategoryId 생성
+                        line.SaveImmediately();
                     }
                 }
             }
+        }
+
+        private void OnCategoryCreated(object sender, CategoryCreatedEventArgs e)
+        {
+            if (sender is MarkdownLineViewModel line)
+            {
+                CurrentCategoryId = e.NewCategoryId;
+                Debug.WriteLine($"[DEBUG] 새 카테고리 생성됨. CurrentCategoryId 업데이트: {CurrentCategoryId}");
+
+                // 이 제목 이후의 모든 라인들의 CategoryId 업데이트
+                int headingIndex = Lines.IndexOf(line);
+                UpdateSubsequentLinesCategoryId(headingIndex + 1, CurrentCategoryId);
+            }
+        }
+
+        private void UpdateSubsequentLinesCategoryId(int startIndex, int categoryId)
+        {
+            for (int i = startIndex; i < Lines.Count; i++)
+            {
+                if (!Lines[i].IsHeadingLine)
+                {
+                    if (Lines[i].CategoryId != categoryId)
+                    {
+                        Lines[i].CategoryId = categoryId;
+                        Debug.WriteLine($"[DEBUG] 라인 {i}의 CategoryId 업데이트: {categoryId}");
+                    }
+                }
+                else
+                {
+                    break; // 다음 제목을 만나면 중단
+                }
+            }
+        }
+
+
+        private void OnRequestFindPreviousCategory(object sender, FindPreviousCategoryEventArgs e)
+        {
+            var currentLine = e.CurrentLine;
+            int currentIndex = Lines.IndexOf(currentLine);
+
+            // 현재 라인 이전에서 가장 가까운 카테고리 찾기
+            for (int i = currentIndex - 1; i >= 0; i--)
+            {
+                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                {
+                    e.PreviousCategoryId = Lines[i].CategoryId;
+                    return;
+                }
+            }
+
+            // 이전 카테고리가 없으면 기본값
+            e.PreviousCategoryId = 1;
         }
 
         private void UpdateCurrentCategory(MarkdownLineViewModel headingLine)
@@ -241,7 +332,9 @@ namespace Notea.Modules.Subject.ViewModels
                 }
 
                 Lines.Remove(line);
-                line.PropertyChanged -= OnLinePropertyChanged; // 이벤트 해제
+                line.PropertyChanged -= OnLinePropertyChanged;
+                line.CategoryCreated -= OnCategoryCreated;
+                line.RequestFindPreviousCategory -= OnRequestFindPreviousCategory;
             }
         }
 
@@ -267,8 +360,11 @@ namespace Notea.Modules.Subject.ViewModels
             if (index < 0 || index > Lines.Count)
                 index = Lines.Count;
 
-            // 삽입 위치 이전의 가장 최근 제목 찾기
+            // 삽입 위치에서의 CategoryId와 DisplayOrder 결정
             int categoryId = CurrentCategoryId;
+            int displayOrder = 1;
+
+            // 삽입 위치 이전의 가장 가까운 제목에서 CategoryId 가져오기
             for (int i = index - 1; i >= 0; i--)
             {
                 if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
@@ -278,6 +374,31 @@ namespace Notea.Modules.Subject.ViewModels
                 }
             }
 
+            // DisplayOrder 계산
+            if (index > 0 && index < Lines.Count)
+            {
+                // 중간 삽입: 이전과 다음 라인의 DisplayOrder 사이값
+                int prevOrder = Lines[index - 1].DisplayOrder;
+                int nextOrder = Lines[index].DisplayOrder;
+
+                // 사이에 공간이 있으면 중간값 사용
+                if (nextOrder - prevOrder > 1)
+                {
+                    displayOrder = prevOrder + 1;
+                }
+                else
+                {
+                    // 공간이 없으면 이후 모든 라인들의 DisplayOrder를 밀어냄
+                    displayOrder = nextOrder;
+                    ShiftDisplayOrdersFrom(displayOrder);
+                }
+            }
+            else if (index > 0)
+            {
+                // 마지막에 추가
+                displayOrder = Lines[index - 1].DisplayOrder + 1;
+            }
+
             var newLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
@@ -285,14 +406,69 @@ namespace Notea.Modules.Subject.ViewModels
                 SubjectId = this.SubjectId,
                 CategoryId = categoryId,
                 Index = index,
+                DisplayOrder = displayOrder,
                 TextId = 0
             };
 
+            // UI에 즉시 반영
             Lines.Insert(index, newLine);
-            newLine.PropertyChanged += OnLinePropertyChanged;
 
-            Debug.WriteLine($"[DEBUG] 새 라인 삽입됨. 위치: {index}, CategoryId: {categoryId}");
+            // 이후 라인들의 Index 업데이트
+            for (int i = index + 1; i < Lines.Count; i++)
+            {
+                Lines[i].Index = i;
+            }
+
+            // 이벤트 등록
+            newLine.PropertyChanged += OnLinePropertyChanged;
+            newLine.CategoryCreated += OnCategoryCreated;
+            newLine.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
+
+            Debug.WriteLine($"[DEBUG] 새 라인 삽입됨. 위치: {index}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
         }
+
+        public void InsertNewLineAfter(MarkdownLineViewModel afterLine)
+        {
+            int insertIndex = Lines.IndexOf(afterLine) + 1;
+            int insertDisplayOrder = afterLine.DisplayOrder;
+
+            // 이후 라인들의 displayOrder 증가
+            ShiftDisplayOrdersFrom(insertDisplayOrder + 1);
+
+            // 새 라인 생성
+            var newLine = new MarkdownLineViewModel
+            {
+                IsEditing = true,
+                Content = "",
+                SubjectId = this.SubjectId,
+                CategoryId = afterLine.CategoryId,
+                Index = insertIndex,
+                DisplayOrder = insertDisplayOrder + 1,
+                TextId = 0
+            };
+
+            Lines.Insert(insertIndex, newLine);
+            newLine.PropertyChanged += OnLinePropertyChanged;
+            newLine.CategoryCreated += OnCategoryCreated;
+
+            Debug.WriteLine($"[DEBUG] 새 라인 삽입. Index: {insertIndex}, DisplayOrder: {newLine.DisplayOrder}");
+        }
+
+        private void ShiftDisplayOrdersFrom(int fromOrder)
+        {
+            // 메모리에서 먼저 업데이트
+            var linesToShift = Lines.Where(l => l.DisplayOrder >= fromOrder).ToList();
+            foreach (var line in linesToShift)
+            {
+                line.DisplayOrder++;
+                Debug.WriteLine($"[DEBUG] 라인 시프트: Content='{line.Content}', NewOrder={line.DisplayOrder}");
+            }
+
+            // DB에서도 업데이트
+            NoteRepository.ShiftDisplayOrdersAfter(SubjectId, fromOrder - 1);
+        }
+
+
 
         /// <summary>
         /// 모든 라인의 인덱스를 재정렬

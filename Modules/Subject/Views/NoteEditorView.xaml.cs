@@ -326,23 +326,30 @@ namespace Notea.Modules.Subject.Views
         {
             _isInternalFocusChange = true;
 
-            var currentLine = vm.Lines.LastOrDefault(l => l.IsEditing);
-            var currentIndex = currentLine != null ? vm.Lines.IndexOf(currentLine) : -1;
-
-            // 현재 라인이 있고 편집 중이면 편집 모드 종료 (자동 저장됨)
-            if (currentLine != null)
+            // 현재 편집 중인 라인 찾기
+            var currentLine = vm.Lines.FirstOrDefault(l => l.IsEditing);
+            if (currentLine == null)
             {
-                currentLine.IsEditing = false;
+                vm.AddNewLine();
+                return;
             }
 
-            // 새 라인 추가
-            vm.AddNewLine();
+            var currentIndex = vm.Lines.IndexOf(currentLine);
 
+            // 현재 라인의 편집 모드 종료 (자동 저장됨)
+            currentLine.IsEditing = false;
+
+            // 중요: 현재 라인 바로 다음에 새 라인 삽입
+            vm.InsertNewLineAt(currentIndex + 1);
+
+            // 새로 삽입된 라인에 포커스
             Dispatcher.InvokeAsync(() =>
             {
                 editorView.UpdateLayout();
 
-                var newContainer = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(vm.Lines.Count - 1) as FrameworkElement;
+                var newContainer = ItemsControlContainer.ItemContainerGenerator
+                    .ContainerFromIndex(currentIndex + 1) as FrameworkElement;
+
                 if (newContainer != null)
                 {
                     var newTextBox = FindVisualChild<TextBox>(newContainer);

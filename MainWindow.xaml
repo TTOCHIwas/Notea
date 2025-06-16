@@ -44,8 +44,8 @@
                        <ColumnDefinition Width="*" x:Name="ThursdayColumn"/>
                        <ColumnDefinition Width="*" x:Name="FridayColumn"/>
                        <ColumnDefinition Width="*" x:Name="SaturdayColumn"/>
-                   </Grid.ColumnDefinitions>
-                    <local:CalendarMonth x:Name="Calendar"/>-->
+                   </Grid.ColumnDefinitions>-->
+                    <!--<local:CalendarMonth x:Name="Calendar"/>-->
                     <local:NotePageView/>
                 </Grid>
 

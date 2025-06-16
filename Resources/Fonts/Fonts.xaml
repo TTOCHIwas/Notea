@@ -48,7 +48,7 @@
 
     <Style TargetType="TextBlock" x:Key="day">
         <Setter Property="FontSize" Value="12"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontWeight" Value="Medium"/>
     </Style>
 
     <Style TargetType="TextBlock" x:Key="dayEvent">

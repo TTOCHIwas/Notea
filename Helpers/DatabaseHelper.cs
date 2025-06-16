@@ -43,45 +43,66 @@ namespace Notea.Helpers
 
                 var command = connection.CreateCommand();
                 command.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS category
+                    CREATE TABLE category
                     (
                         categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
+                        displayOrder INTEGER DEFAULT 0,
                         title      VARCHAR NOT NULL,
                         subJectId  INTEGER NOT NULL,
-                        timeId     INTEGER NOT NULL
+                        timeId     INTEGER NOT NULL,
+                        FOREIGN KEY (subJectId) REFERENCES subject (subJectId),
+                        FOREIGN KEY (timeId) REFERENCES time (timeId)
                     );
 
-                    CREATE TABLE IF NOT EXISTS subject
+                    CREATE TABLE memo
+                    (
+                        noteId  INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content text    NULL    
+                    );
+
+                    CREATE TABLE monthlyEvent
+                    (
+                        planId      INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title       VARCHAR  NOT NULL,
+                        description VARCHAR  NULL    ,
+                        isDday      BOOLEAN  NOT NULL,
+                        startDate   DATETIME NOT NULL,
+                        endDate     DATETIME NOT NULL,
+                        color       VARCHAR  NULL    
+                    );
+
+                    CREATE TABLE noteContent
+                    (
+                        TextId     INTEGER PRIMARY KEY AUTOINCREMENT,
+                        displayOrder INTEGER DEFAULT 0,
+                        content    VARCHAR NULL    ,
+                        categoryId INTEGER NOT NULL,
+                        subJectId  INTEGER NOT NULL,
+                        FOREIGN KEY (categoryId) REFERENCES category (categoryId),
+                        FOREIGN KEY (subJectId) REFERENCES subject (subJectId)
+                    );
+
+                    CREATE TABLE subject
                     (
                         subJectId INTEGER PRIMARY KEY AUTOINCREMENT,
                         title     VARCHAR NOT NULL
                     );
 
-                    CREATE TABLE IF NOT EXISTS time
+                    CREATE TABLE time
                     (
                         timeId     INTEGER PRIMARY KEY AUTOINCREMENT,
                         createDate DATETIME NOT NULL,
                         record     INT      NOT NULL
                     );
 
-                    CREATE TABLE IF NOT EXISTS noteContent
+                    CREATE TABLE todo
                     (
-                        TextId     INTEGER PRIMARY KEY AUTOINCREMENT,
-                        content    VARCHAR NULL,
-                        categoryId INTEGER NOT NULL,
-                        subJectId  INTEGER NOT NULL
+                        todoId     INTEGER PRIMARY KEY AUTOINCREMENT,
+                        createDate DATETIME NOT NULL,
+                        title      VARCHAR  NOT NULL,
+                        isDo       BOOLEAN  NOT NULL
                     );
-
-                    CREATE TABLE IF NOT EXISTS monthlyEvent
-                    (
-                        planId      INTEGER PRIMARY KEY AUTOINCREMENT,
-                        title       VARCHAR  NOT NULL,
-                        description VARCHAR  NULL,
-                        isDday      BOOLEAN  NOT NULL,
-                        startDate   DATETIME NOT NULL,
-                        endDate     DATETIME NOT NULL,
-                        color       VARCHAR  NULL
-                    );
+                    
 
                     -- 기본 데이터 삽입
                     INSERT OR IGNORE INTO subject (subJectId, title) VALUES (1, '윈도우즈 프로그래밍');

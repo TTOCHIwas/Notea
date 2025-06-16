@@ -43,6 +43,20 @@ namespace Notea.Modules.Subject.ViewModels
             UpdatePlaceholder();
         }
 
+        private int _displayOrder;
+        public int DisplayOrder
+        {
+            get => _displayOrder;
+            set
+            {
+                if (_displayOrder != value)
+                {
+                    _displayOrder = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         /// <summary>
         /// 자동 저장을 위한 타이머 초기화
         /// </summary>
@@ -212,17 +226,58 @@ namespace Notea.Modules.Subject.ViewModels
             if (wasHeading && !isHeading)
             {
                 Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
+
+                // 카테고리 삭제 전에 이전 카테고리 찾기
+                int previousCategoryId = FindPreviousCategoryId();
+
+                if (previousCategoryId > 0)
+                {
+                    // 현재 카테고리에 속한 텍스트들을 이전 카테고리로 이동
+                    NoteRepository.ReassignTextsToCategory(this.CategoryId, previousCategoryId);
+                }
+
+                // 카테고리 삭제 (이제 텍스트들은 안전하게 재할당됨)
                 NoteRepository.DeleteCategory(this.CategoryId);
-                CategoryId = 0;
-                TextId = 0;
+
+                // 현재 라인을 일반 텍스트로 변환
+                CategoryId = previousCategoryId > 0 ? previousCategoryId : 1; // 이전 카테고리 또는 기본값
+                TextId = 0; // 새로운 텍스트로 저장될 것임
             }
             else if (!wasHeading && isHeading)
             {
                 Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
-                NoteRepository.DeleteLine(this.TextId);
-                CategoryId = 0;
+
+                // 기존 텍스트 라인 삭제
+                if (this.TextId > 0)
+                {
+                    NoteRepository.DeleteLine(this.TextId);
+                }
+
+                CategoryId = 0; // 새로운 카테고리로 저장될 것임
                 TextId = 0;
             }
+        }
+
+        private int FindPreviousCategoryId()
+        {
+            // NoteEditorViewModel에서 현재 라인의 위치를 기준으로 이전 카테고리를 찾아야 함
+            // 이를 위해 PropertyChanged 이벤트를 통해 ViewModel에 요청
+            var args = new FindPreviousCategoryEventArgs { CurrentLine = this };
+            OnRequestFindPreviousCategory(args);
+            return args.PreviousCategoryId;
+        }
+
+        public event EventHandler<FindPreviousCategoryEventArgs> RequestFindPreviousCategory;
+
+        protected virtual void OnRequestFindPreviousCategory(FindPreviousCategoryEventArgs e)
+        {
+            RequestFindPreviousCategory?.Invoke(this, e);
+        }
+
+        public class FindPreviousCategoryEventArgs : EventArgs
+        {
+            public MarkdownLineViewModel CurrentLine { get; set; }
+            public int PreviousCategoryId { get; set; }
         }
 
         public string Placeholder
@@ -603,29 +658,57 @@ namespace Notea.Modules.Subject.ViewModels
             Inlines = newInlines;
             OnPropertyChanged(nameof(Inlines));
         }
+        public class CategoryCreatedEventArgs : EventArgs
+        {
+            public int NewCategoryId { get; set; }
+        }
+        public event EventHandler<CategoryCreatedEventArgs> CategoryCreated;
+
+        protected virtual void OnCategoryCreated(int categoryId)
+        {
+            CategoryCreated?.Invoke(this, new CategoryCreatedEventArgs { NewCategoryId = categoryId });
+        }
 
         private void SaveToDatabase()
         {
             try
             {
-                // CategoryId가 유효하지 않으면 저장하지 않음
+                // 부모가 없어도 삭제하지 않고 기본 카테고리 할당
                 if (!IsHeadingLine && CategoryId <= 0)
                 {
-                    Debug.WriteLine($"[DB] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {CategoryId}, Content: {Content}");
-                    return;
+                    Debug.WriteLine($"[DB] CategoryId가 없음. 기본 카테고리 할당. Content: {Content}");
+                    CategoryId = 1; // 기본 카테고리
                 }
 
                 if (IsHeadingLine)  // # 하나인 카테고리 제목인 경우
                 {
-                    // 제목인 경우
-                    NoteRepository.SaveOrUpdateLine(this);
-                    Debug.WriteLine($"[DB] 제목 자동 저장 완료. CategoryId: {CategoryId}, Content: {Content}");
+                    if (CategoryId <= 0)
+                    {
+                        int newCategoryId = NoteRepository.InsertCategory(Content, SubjectId, DisplayOrder);
+                        CategoryId = newCategoryId;
+                        OnCategoryCreated(newCategoryId);
+                        Debug.WriteLine($"[DB] 새 제목 생성 완료. CategoryId: {newCategoryId}, DisplayOrder: {DisplayOrder}");
+                    }
+                    else
+                    {
+                        NoteRepository.UpdateCategory(CategoryId, Content);
+                        Debug.WriteLine($"[DB] 제목 업데이트 완료. CategoryId: {CategoryId}");
+                    }
                 }
                 else
                 {
-                    // 일반 텍스트인 경우
-                    NoteRepository.SaveOrUpdateLine(this);
-                    Debug.WriteLine($"[DB] 라인 자동 저장 완료. TextId: {TextId}, CategoryId: {CategoryId}, Content: {Content}");
+                    // 일반 텍스트 저장
+                    if (TextId <= 0)
+                    {
+                        int newTextId = NoteRepository.InsertNewLine(this, DisplayOrder);
+                        TextId = newTextId;
+                        Debug.WriteLine($"[DB] 새 텍스트 저장 완료. TextId: {newTextId}, CategoryId: {CategoryId}, DisplayOrder: {DisplayOrder}");
+                    }
+                    else
+                    {
+                        NoteRepository.UpdateLine(this);
+                        Debug.WriteLine($"[DB] 텍스트 업데이트 완료. TextId: {TextId}");
+                    }
                 }
             }
             catch (Exception ex)
