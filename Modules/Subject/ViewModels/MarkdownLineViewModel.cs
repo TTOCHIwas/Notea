@@ -35,6 +35,10 @@ namespace Notea.Modules.Subject.ViewModels
         public string OriginalContent { get; private set; }
         public bool HasChanges => Content != OriginalContent;
 
+        public event EventHandler<CategoryCreatedEventArgs> CategoryCreated;
+        public event EventHandler<FindPreviousCategoryEventArgs> RequestFindPreviousCategory;
+
+
         public MarkdownLineViewModel()
         {
             Content = "";
@@ -300,7 +304,7 @@ namespace Notea.Modules.Subject.ViewModels
                 NoteRepository.DeleteCategory(this.CategoryId);
 
                 // 현재 라인을 일반 텍스트로 변환
-                CategoryId = previousCategoryId > 0 ? previousCategoryId : 1; // 이전 카테고리 또는 기본값
+                CategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
                 TextId = 0; // 새로운 텍스트로 저장될 것임
             }
             else if (!wasHeading && isHeading)
@@ -320,14 +324,10 @@ namespace Notea.Modules.Subject.ViewModels
 
         private int FindPreviousCategoryId()
         {
-            // NoteEditorViewModel에서 현재 라인의 위치를 기준으로 이전 카테고리를 찾아야 함
-            // 이를 위해 PropertyChanged 이벤트를 통해 ViewModel에 요청
             var args = new FindPreviousCategoryEventArgs { CurrentLine = this };
             OnRequestFindPreviousCategory(args);
             return args.PreviousCategoryId;
         }
-
-        public event EventHandler<FindPreviousCategoryEventArgs> RequestFindPreviousCategory;
 
         protected virtual void OnRequestFindPreviousCategory(FindPreviousCategoryEventArgs e)
         {
@@ -456,6 +456,7 @@ namespace Notea.Modules.Subject.ViewModels
 
             return false;
         }
+
 
         public double FontSize
         {
@@ -722,8 +723,6 @@ namespace Notea.Modules.Subject.ViewModels
         {
             public int NewCategoryId { get; set; }
         }
-        public event EventHandler<CategoryCreatedEventArgs> CategoryCreated;
-
         protected virtual void OnCategoryCreated(int categoryId)
         {
             CategoryCreated?.Invoke(this, new CategoryCreatedEventArgs { NewCategoryId = categoryId });
@@ -776,6 +775,7 @@ namespace Notea.Modules.Subject.ViewModels
                 Debug.WriteLine($"[DB ERROR] 자동 저장 실패: {ex.Message}");
             }
         }
+
 
         public bool IsEmpty => string.IsNullOrWhiteSpace(Content);
 

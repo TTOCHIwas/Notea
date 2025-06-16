@@ -170,8 +170,8 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if ((DateTime.Now - _lastActivityTime).TotalSeconds >= IDLE_TIMEOUT_SECONDS)
             {
-                Debug.WriteLine("이새끼가?================");
-                Debug.WriteLine($"{DateTime.Now}똑바로 해라 시발 이게 맞나 {_lastActivityTime}");
+                Debug.WriteLine($"[IDLE] {IDLE_TIMEOUT_SECONDS}초간 유휴 상태 감지. 자동 저장 시작.");
+                DebugPrintCurrentState();
                 UpdateActivity();
                 SaveAllChanges();
             }
@@ -306,25 +306,23 @@ namespace Notea.Modules.Subject.ViewModels
             int categoryIdForNewLine = GetCurrentCategoryIdForNewLine();
             int displayOrder = Lines.Count > 0 ? Lines.Last().DisplayOrder + 1 : 1;
 
+            Debug.WriteLine($"[ADD LINE] 새 라인 추가 시작. CategoryId: {categoryIdForNewLine}, DisplayOrder: {displayOrder}");
+
             var newLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
                 Content = "",
                 SubjectId = this.SubjectId,
-                CategoryId = categoryIdForNewLine > 0 ? categoryIdForNewLine : 1, // 기본값 보장
+                CategoryId = categoryIdForNewLine > 0 ? categoryIdForNewLine : 1,
                 Index = Lines.Count,
                 DisplayOrder = displayOrder,
                 TextId = 0
             };
 
             Lines.Add(newLine);
+            RegisterLineEvents(newLine);
 
-            // 이벤트 등록
-            newLine.PropertyChanged += OnLinePropertyChanged;
-            newLine.CategoryCreated += OnCategoryCreated;
-            newLine.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
-
-            Debug.WriteLine($"[DEBUG] 새 라인 추가됨. CategoryId: {newLine.CategoryId}, DisplayOrder: {displayOrder}");
+            Debug.WriteLine($"[ADD LINE] 새 라인 추가 완료. Index: {newLine.Index}");
         }
 
         private int GetCurrentCategoryIdForNewLine()
@@ -662,58 +660,73 @@ namespace Notea.Modules.Subject.ViewModels
                 using var transaction = NoteRepository.BeginTransaction();
                 try
                 {
-                    Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 하는중 기다려라");
                     foreach (var line in changedLines)
                     {
+                        Debug.WriteLine($"[SAVE] 라인 처리 중 - Content: {line.Content}, IsHeading: {line.IsHeadingLine}, CategoryId: {line.CategoryId}, TextId: {line.TextId}");
+
                         if (line.IsHeadingLine)
                         {
                             // 부모 카테고리 찾기
                             int? parentId = FindParentForHeading(line);
-                            Debug.WriteLine($"[SAVE] {changedLines.Count}부모 찾아왔다임마 {parentId}");
-
+                            Debug.WriteLine($"[SAVE] 헤딩 부모 카테고리: {parentId}");
 
                             if (line.CategoryId <= 0)
                             {
-                                Debug.WriteLine($"[SAVE] 이새끼 카테고리 아이디가 없다");
-
-                                // 새 카테고리 생성
+                                // 새 카테고리 생성 - transaction 전달
                                 int newCategoryId = NoteRepository.InsertCategory(
                                     line.Content,
                                     line.SubjectId,
                                     line.DisplayOrder,
                                     line.Level,
                                     parentId,
-                                    transaction);
+                                    transaction); // 트랜잭션 전달
                                 line.CategoryId = newCategoryId;
+                                Debug.WriteLine($"[SAVE] 새 카테고리 생성됨: {newCategoryId}");
                             }
                             else
                             {
-                                Debug.WriteLine($"[SAVE] 이새끼는 카테고린데 업데이트 한단다");
-
-                                // 기존 카테고리 업데이트
+                                // 기존 카테고리 업데이트 - transaction 전달
                                 NoteRepository.UpdateCategory(line.CategoryId, line.Content, transaction);
+                                Debug.WriteLine($"[SAVE] 카테고리 업데이트됨: {line.CategoryId}");
                             }
                         }
                         else
                         {
-                            Debug.WriteLine($"[SAVE] 이새끼는 카테고리가 아니네?");
+                            // 일반 텍스트
+                            Debug.WriteLine($"[SAVE] 일반 텍스트 저장 - CategoryId: {line.CategoryId}");
+
+                            if (line.CategoryId <= 0)
+                            {
+                                Debug.WriteLine($"[SAVE ERROR] CategoryId가 유효하지 않음: {line.CategoryId}");
+                                line.CategoryId = GetCurrentCategoryIdForNewLine();
+                                Debug.WriteLine($"[SAVE] CategoryId 재설정: {line.CategoryId}");
+                            }
 
                             if (line.TextId <= 0)
                             {
-                                Debug.WriteLine($"[SAVE] 이새끼는 텍스트 아이디가 읎댄다");
+                                // 새 텍스트 생성 - transaction 전달
+                                int newTextId = NoteRepository.InsertNewLine(
+                                    line.Content,
+                                    line.SubjectId,
+                                    line.CategoryId,
+                                    line.DisplayOrder,
+                                    transaction); // 트랜잭션 전달
 
-                                // 새 텍스트 생성
-                                int newTextId = NoteRepository.InsertNewLine(line.Content, line.SubjectId, line.CategoryId, line.DisplayOrder);
-                                line.TextId = newTextId;
-                                Debug.WriteLine($"[SAVE] 텍스트 추가 했다 아이디 이거다 {line.TextId}");
-
+                                if (newTextId > 0)
+                                {
+                                    line.TextId = newTextId;
+                                    Debug.WriteLine($"[SAVE] 새 텍스트 생성됨: {newTextId}");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"[SAVE ERROR] 텍스트 삽입 실패");
+                                }
                             }
                             else
                             {
-                                Debug.WriteLine($"[SAVE] 이새끼는 텍스튼데 업데이트 한단다");
-
                                 // 기존 텍스트 업데이트
                                 NoteRepository.UpdateLine(line);
+                                Debug.WriteLine($"[SAVE] 텍스트 업데이트됨: {line.TextId}");
                             }
                         }
 
@@ -722,17 +735,18 @@ namespace Notea.Modules.Subject.ViewModels
                     }
 
                     transaction.Commit();
-                    Debug.WriteLine($"[SAVE] 저장 완료");
+                    Debug.WriteLine($"[SAVE] 트랜잭션 커밋 완료");
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Debug.WriteLine($"[SAVE ERROR] 트랜잭션 실패, 롤백: {ex.Message}");
                     transaction.Rollback();
                     throw;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}");
+                Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -765,6 +779,25 @@ namespace Notea.Modules.Subject.ViewModels
             return null;
         }
 
+        private void DebugPrintCurrentState()
+        {
+            Debug.WriteLine("=== 현재 에디터 상태 ===");
+            Debug.WriteLine($"SubjectId: {SubjectId}");
+            Debug.WriteLine($"CurrentCategoryId: {CurrentCategoryId}");
+            Debug.WriteLine($"Lines 개수: {Lines.Count}");
+
+            for (int i = 0; i < Lines.Count; i++)
+            {
+                var line = Lines[i];
+                Debug.WriteLine($"[{i}] Content: '{line.Content}', " +
+                               $"CategoryId: {line.CategoryId}, " +
+                               $"TextId: {line.TextId}, " +
+                               $"IsHeading: {line.IsHeadingLine}, " +
+                               $"Level: {line.Level}, " +
+                               $"HasChanges: {line.HasChanges}");
+            }
+            Debug.WriteLine("===================");
+        }
 
 
         // View가 닫힐 때 호출

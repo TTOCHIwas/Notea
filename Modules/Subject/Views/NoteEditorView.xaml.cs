@@ -120,6 +120,12 @@ namespace Notea.Modules.Subject.Views
             var vm = this.DataContext as NoteEditorViewModel;
             if (vm == null) return;
 
+            if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                e.Handled = true;
+                OpenSearch();
+                return;
+            }
             // 한글 입력 중 ESC 키로 조합 취소 시 처리
             if (e.Key == Key.Escape)
             {
@@ -457,7 +463,10 @@ namespace Notea.Modules.Subject.Views
         private bool HandleBoldShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "**");
         private bool HandleItalicShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "*");
         private bool HandleUnderlineShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "__");
-        private bool HandleStrikethroughShortcut(TextBox textBox) => HandleMarkdownToggle(textBox, "~~");
+        private bool HandleStrikethroughShortcut(TextBox textBox)
+        {
+            return HandleMarkdownToggle(textBox, "~~");
+        }
 
         private void HandleEnter(NoteEditorViewModel vm)
         {
@@ -539,21 +548,62 @@ namespace Notea.Modules.Subject.Views
             container.BringIntoView();
         }
 
-        private T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        private void OpenSearch()
+        {
+            // NotePageView의 ViewModel 찾기
+            var parent = VisualTreeHelper.GetParent(this);
+            while (parent != null && !(parent is NotePageView))
+            {
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+
+            if (parent is NotePageView pageView && pageView.DataContext is NotePageViewModel pageViewModel)
+            {
+                //pageViewModel.SearchViewModel.IsSearchPanelVisible = true;
+
+                // SearchBox에 포커스 설정
+                Dispatcher.InvokeAsync(() =>
+                {
+                    // SearchPanel 찾기
+                    var window = Window.GetWindow(this);
+                    if (window != null)
+                    {
+                        var searchPanel = FindVisualChild<SearchPanel>(window);
+                        if (searchPanel != null)
+                        {
+                            var searchBox = FindVisualChild<TextBox>(searchPanel, "SearchBox");
+                            searchBox?.Focus();
+                        }
+                    }
+                }, DispatcherPriority.Input);
+            }
+        }
+
+
+        private T FindVisualChild<T>(DependencyObject parent, string name = null) where T : DependencyObject
         {
             if (parent == null) return null;
 
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
             {
                 var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T target)
-                    return target;
 
-                var result = FindVisualChild<T>(child);
+                if (child is T target)
+                {
+                    if (name == null)
+                        return target;
+
+                    if (child is FrameworkElement fe && fe.Name == name)
+                        return target;
+                }
+
+                var result = FindVisualChild<T>(child, name);
                 if (result != null)
                     return result;
             }
             return null;
         }
+
+
     }
 }

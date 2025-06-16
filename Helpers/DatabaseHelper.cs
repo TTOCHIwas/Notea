@@ -25,7 +25,8 @@ namespace Notea.Helpers
                 Directory.CreateDirectory(dataDir);
             }
 
-            connectionString = $"Data Source={dbPath};";
+            // 연결 문자열에 추가 옵션 설정
+            connectionString = $"Data Source={dbPath};Journal Mode=WAL;Busy Timeout=5000;";
 
             // DB 파일이 없으면 생성
             if (!File.Exists(dbPath))
@@ -43,24 +44,29 @@ namespace Notea.Helpers
 
                 var command = connection.CreateCommand();
                 command.CommandText = @"
-                    CREATE TABLE category
+                    -- 외래 키 활성화
+                    PRAGMA foreign_keys = ON;
+
+                    CREATE TABLE IF NOT EXISTS category
                     (
                         categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
                         displayOrder INTEGER DEFAULT 0,
                         title      VARCHAR NOT NULL,
                         subJectId  INTEGER NOT NULL,
                         timeId     INTEGER NOT NULL,
+                        level      INTEGER DEFAULT 1,
+                        parentCategoryId INTEGER DEFAULT NULL,
                         FOREIGN KEY (subJectId) REFERENCES subject (subJectId),
                         FOREIGN KEY (timeId) REFERENCES time (timeId)
                     );
 
-                    CREATE TABLE memo
+                    CREATE TABLE IF NOT EXISTS memo
                     (
                         noteId  INTEGER PRIMARY KEY AUTOINCREMENT,
                         content text    NULL    
                     );
 
-                    CREATE TABLE monthlyEvent
+                    CREATE TABLE IF NOT EXISTS monthlyEvent
                     (
                         planId      INTEGER PRIMARY KEY AUTOINCREMENT,
                         title       VARCHAR  NOT NULL,
@@ -71,9 +77,9 @@ namespace Notea.Helpers
                         color       VARCHAR  NULL    
                     );
 
-                    CREATE TABLE noteContent
+                    CREATE TABLE IF NOT EXISTS noteContent
                     (
-                        TextId     INTEGER PRIMARY KEY AUTOINCREMENT,
+                        textId     INTEGER PRIMARY KEY AUTOINCREMENT,
                         displayOrder INTEGER DEFAULT 0,
                         content    VARCHAR NULL    ,
                         categoryId INTEGER NOT NULL,
@@ -82,33 +88,32 @@ namespace Notea.Helpers
                         FOREIGN KEY (subJectId) REFERENCES subject (subJectId)
                     );
 
-                    CREATE TABLE subject
+                    CREATE TABLE IF NOT EXISTS subject
                     (
                         subJectId INTEGER PRIMARY KEY AUTOINCREMENT,
                         title     VARCHAR NOT NULL
                     );
 
-                    CREATE TABLE time
+                    CREATE TABLE IF NOT EXISTS time
                     (
                         timeId     INTEGER PRIMARY KEY AUTOINCREMENT,
                         createDate DATETIME NOT NULL,
                         record     INT      NOT NULL
                     );
 
-                    CREATE TABLE todo
+                    CREATE TABLE IF NOT EXISTS todo
                     (
                         todoId     INTEGER PRIMARY KEY AUTOINCREMENT,
                         createDate DATETIME NOT NULL,
                         title      VARCHAR  NOT NULL,
                         isDo       BOOLEAN  NOT NULL
                     );
-                    
 
                     -- 기본 데이터 삽입
                     INSERT OR IGNORE INTO subject (subJectId, title) VALUES (1, '윈도우즈 프로그래밍');
                     INSERT OR IGNORE INTO time (timeId, createDate, record) VALUES (1, datetime('now'), 1);
                     INSERT OR IGNORE INTO category (categoryId, title, subJectId, timeId) VALUES (1, '# 기본 카테고리', 1, 1);
-                ";
+                    ";
 
                 command.ExecuteNonQuery();
 
@@ -136,7 +141,6 @@ namespace Notea.Helpers
             }
         }
 
-        // SELECT 쿼리 실행 (결과 반환)
         public static DataTable ExecuteSelect(string query)
         {
             var dt = new DataTable();
@@ -146,6 +150,13 @@ namespace Notea.Helpers
                 using (var connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();
+
+                    // 외래 키 활성화
+                    using (var pragmaCmd = new SQLiteCommand("PRAGMA foreign_keys = ON;", connection))
+                    {
+                        pragmaCmd.ExecuteNonQuery();
+                    }
+
                     using (var command = new SQLiteCommand(query, connection))
                     using (var adapter = new SQLiteDataAdapter(command))
                     {
@@ -154,16 +165,6 @@ namespace Notea.Helpers
                 }
 
                 Console.WriteLine($"SELECT 쿼리 실행 성공. 반환된 행: {dt.Rows.Count}");
-
-                // 디버깅: 첫 몇 개 행의 내용 출력
-                if (dt.Rows.Count > 0)
-                {
-                    Console.WriteLine($"첫 번째 행 내용:");
-                    foreach (DataColumn col in dt.Columns)
-                    {
-                        Console.WriteLine($"  {col.ColumnName}: {dt.Rows[0][col]}");
-                    }
-                }
             }
             catch (Exception ex)
             {
@@ -240,6 +241,40 @@ namespace Notea.Helpers
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] 헤딩 레벨 스키마 업데이트 실패: {ex.Message}");
+            }
+        }
+
+        public static void CheckTableStructure()
+        {
+            try
+            {
+                string query = @"
+            SELECT sql FROM sqlite_master 
+            WHERE type='table' AND name IN ('category', 'noteContent', 'subject');";
+
+                var result = ExecuteSelect(query);
+                foreach (DataRow row in result.Rows)
+                {
+                    Debug.WriteLine($"[DB SCHEMA] {row["sql"]}");
+                }
+
+                // noteContent 테이블의 데이터 확인
+                query = "SELECT COUNT(*) as count FROM noteContent";
+                result = ExecuteSelect(query);
+                Debug.WriteLine($"[DB] noteContent 테이블의 행 수: {result.Rows[0]["count"]}");
+
+                // category 테이블의 데이터 확인
+                query = "SELECT * FROM category";
+                result = ExecuteSelect(query);
+                Debug.WriteLine($"[DB] category 테이블 내용:");
+                foreach (DataRow row in result.Rows)
+                {
+                    Debug.WriteLine($"  CategoryId: {row["categoryId"]}, Title: {row["title"]}, SubjectId: {row["subJectId"]}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] 테이블 구조 확인 실패: {ex.Message}");
             }
         }
 
